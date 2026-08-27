@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   ShieldCheck,
   Star,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -53,6 +54,11 @@ export default function ProductPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [showOfferModal, setShowOfferModal] = useState(false);
+  const [offerAmount, setOfferAmount] = useState("");
+  const [offerMessage, setOfferMessage] = useState("");
+  const [submittingOffer, setSubmittingOffer] = useState(false);
 
   useEffect(() => {
     async function loadProduct() {
@@ -116,6 +122,85 @@ export default function ProductPage() {
     loadProduct();
   }, [productId, supabase]);
 
+  async function openOfferModal() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      window.location.href = "/auth";
+      return;
+    }
+
+    if (!product) return;
+
+    if (user.id === product.seller_id) {
+      setOfferMessage("No puedes hacer una oferta por tu propio artículo.");
+      return;
+    }
+
+    setOfferAmount("");
+    setOfferMessage("");
+    setShowOfferModal(true);
+  }
+
+  async function submitOffer(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (!product) return;
+
+    const amount = Number(offerAmount);
+
+    if (!offerAmount || amount <= 0) {
+      setOfferMessage("Ingresa una oferta válida.");
+      return;
+    }
+
+    if (amount >= Number(product.price)) {
+      setOfferMessage(
+        "Tu oferta debe ser menor que el precio publicado. Puedes comprarlo directamente por el precio completo."
+      );
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      window.location.href = "/auth";
+      return;
+    }
+
+    setSubmittingOffer(true);
+    setOfferMessage("");
+
+    const { error } = await supabase
+      .from("offers")
+      .insert({
+        product_id: product.id,
+        buyer_id: user.id,
+        seller_id: product.seller_id,
+        amount,
+        status: "pending",
+      });
+
+    if (error) {
+      setOfferMessage(error.message);
+      setSubmittingOffer(false);
+      return;
+    }
+
+    setOfferMessage("Oferta enviada correctamente.");
+    setSubmittingOffer(false);
+
+    setTimeout(() => {
+      setShowOfferModal(false);
+      setOfferAmount("");
+      setOfferMessage("");
+    }, 900);
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
@@ -156,11 +241,15 @@ export default function ProductPage() {
     fair: "Estado aceptable",
   };
 
-  const location = [product.city, product.province]
+  const location = [
+    product.city,
+    product.province,
+  ]
     .filter(Boolean)
     .join(", ");
 
-  const currentImage = images[activeImage]?.image_url;
+  const currentImage =
+    images[activeImage]?.image_url;
 
   return (
     <main className="min-h-screen bg-white pb-28 text-black">
@@ -181,7 +270,6 @@ export default function ProductPage() {
               </div>
             )}
 
-            {/* TOP CONTROLS */}
             <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-4">
               <Link
                 href="/"
@@ -208,7 +296,6 @@ export default function ProductPage() {
             )}
           </div>
 
-          {/* THUMBNAILS */}
           {images.length > 1 && (
             <div className="flex gap-2 overflow-x-auto px-4 py-3">
               {images.map((image, index) => (
@@ -338,7 +425,7 @@ export default function ProductPage() {
 
         <div className="h-2 bg-zinc-50" />
 
-        {/* PROTECTION */}
+        {/* BUYER PROTECTION */}
         <section className="px-5 py-6">
           <div className="flex gap-3">
             <ShieldCheck size={22} />
@@ -359,15 +446,100 @@ export default function ProductPage() {
       {/* BUY BAR */}
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white p-3">
         <div className="mx-auto flex max-w-md gap-2">
-          <button className="flex-1 rounded-2xl border border-black px-4 py-4 text-sm font-bold">
+          <button
+            type="button"
+            onClick={openOfferModal}
+            className="flex-1 rounded-2xl border border-black px-4 py-4 text-sm font-bold"
+          >
             Hacer oferta
           </button>
 
-          <button className="flex-1 rounded-2xl bg-black px-4 py-4 text-sm font-bold text-white">
+          <button
+            type="button"
+            className="flex-1 rounded-2xl bg-black px-4 py-4 text-sm font-bold text-white"
+          >
             Comprar · ${Number(product.price).toFixed(2)}
           </button>
         </div>
       </div>
+
+      {/* OFFER MODAL */}
+      {showOfferModal && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 sm:items-center">
+          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl">
+
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold">
+                  Hacer oferta
+                </h2>
+
+                <p className="mt-1 text-sm text-zinc-500">
+                  Precio publicado: ${Number(product.price).toFixed(2)}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowOfferModal(false);
+                  setOfferMessage("");
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={submitOffer}
+              className="mt-6"
+            >
+              <label className="text-sm font-bold">
+                Tu oferta
+              </label>
+
+              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 px-4">
+                <span className="text-lg font-bold">
+                  $
+                </span>
+
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={offerAmount}
+                  onChange={(e) =>
+                    setOfferAmount(e.target.value)
+                  }
+                  placeholder="0.00"
+                  className="w-full px-3 py-4 text-xl font-bold outline-none"
+                />
+              </div>
+
+              <p className="mt-2 text-xs text-zinc-400">
+                El vendedor podrá aceptar, rechazar o hacer una contraoferta.
+              </p>
+
+              {offerMessage && (
+                <div className="mt-4 rounded-xl bg-zinc-100 p-4 text-sm">
+                  {offerMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submittingOffer}
+                className="mt-5 w-full rounded-2xl bg-black py-4 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {submittingOffer
+                  ? "Enviando..."
+                  : "Enviar oferta"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
