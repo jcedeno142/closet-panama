@@ -23,10 +23,26 @@ type Profile = {
   verified: boolean;
 };
 
+type ProductImage = {
+  image_url: string;
+  position: number;
+};
+
+type Product = {
+  id: string;
+  title: string;
+  brand: string | null;
+  price: number;
+  status: string;
+  product_images: ProductImage[];
+};
+
 export default function ProfilePage() {
   const supabase = createClient();
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -42,20 +58,60 @@ export default function ProfilePage() {
         return;
       }
 
-      const { data, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
+      // LOAD PROFILE
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
 
       if (profileError) {
-  setError(profileError.message);
-} else if (!data) {
-  setError("No profile exists for this account.");
-} else {
-  setProfile(data);
-}
+        setError(profileError.message);
+        setLoading(false);
+        return;
+      }
 
+      if (!profileData) {
+        setError("No profile exists for this account.");
+        setLoading(false);
+        return;
+      }
+
+      setProfile(profileData);
+
+      // LOAD USER'S PRODUCTS
+      const { data: productData, error: productError } =
+        await supabase
+          .from("products")
+          .select(`
+            id,
+            title,
+            brand,
+            price,
+            status,
+            product_images (
+              image_url,
+              position
+            )
+          `)
+          .eq("seller_id", user.id)
+          .order("created_at", { ascending: false });
+
+      if (productError) {
+        setError(productError.message);
+        setLoading(false);
+        return;
+      }
+
+      const cleanProducts = (productData || []).map((product) => ({
+        ...product,
+        product_images: [...(product.product_images || [])].sort(
+          (a, b) => a.position - b.position
+        ),
+      }));
+
+      setProducts(cleanProducts);
       setLoading(false);
     }
 
@@ -85,11 +141,9 @@ export default function ProfilePage() {
             No pudimos cargar tu perfil.
           </p>
 
-          {error && (
-            <p className="mt-2 text-sm text-zinc-500">
-              {error}
-            </p>
-          )}
+          <p className="mt-2 text-sm text-zinc-500">
+            {error}
+          </p>
         </div>
       </main>
     );
@@ -98,6 +152,14 @@ export default function ProfilePage() {
   const initial =
     profile.display_name?.charAt(0).toUpperCase() ||
     profile.username.charAt(0).toUpperCase();
+
+  const activeProducts = products.filter(
+    (product) => product.status === "active"
+  );
+
+  const soldProducts = products.filter(
+    (product) => product.status === "sold"
+  );
 
   return (
     <main className="min-h-screen bg-white pb-10 text-black">
@@ -128,7 +190,6 @@ export default function ProfilePage() {
         <section className="px-5 pt-5">
           <div className="flex items-center">
 
-            {/* AVATAR */}
             {profile.avatar_url ? (
               <img
                 src={profile.avatar_url}
@@ -164,11 +225,11 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* STATS */}
+          {/* REAL STATS */}
           <div className="mt-6 flex gap-8">
             <div>
               <p className="text-lg font-black">
-                0
+                {activeProducts.length}
               </p>
 
               <p className="text-xs text-zinc-500">
@@ -188,7 +249,7 @@ export default function ProfilePage() {
 
             <div>
               <p className="text-lg font-black">
-                0
+                {soldProducts.length}
               </p>
 
               <p className="text-xs text-zinc-500">
@@ -197,7 +258,6 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* BIO */}
           {profile.bio ? (
             <p className="mt-5 text-sm leading-6 text-zinc-600">
               {profile.bio}
@@ -209,7 +269,6 @@ export default function ProfilePage() {
             </p>
           )}
 
-          {/* LOCATION */}
           {(profile.city || profile.province) && (
             <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
               <MapPin size={14} />
@@ -220,16 +279,11 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* RATING */}
           <div className="mt-4 flex items-center gap-1 text-xs text-zinc-500">
             <Star size={13} fill="currentColor" />
-
-            <span>
-              Sin calificaciones todavía
-            </span>
+            <span>Sin calificaciones todavía</span>
           </div>
 
-          {/* EDIT PROFILE */}
           <Link
             href="/profile/edit"
             className="mt-6 block w-full rounded-2xl bg-black py-4 text-center text-sm font-bold text-white"
@@ -240,24 +294,89 @@ export default function ProfilePage() {
 
         <div className="mt-8 h-2 bg-zinc-50" />
 
-        {/* SELLING SECTION */}
+        {/* CLOSET */}
         <section className="px-5 py-6">
-          <h2 className="text-lg font-bold">
-            {profile.account_type === "business"
-              ? "Tu tienda"
-              : "Tu closet"}
-          </h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold">
+                {profile.account_type === "business"
+                  ? "Tu tienda"
+                  : "Tu closet"}
+              </h2>
 
-          <p className="mt-2 text-sm text-zinc-500">
-            Todavía no tienes artículos publicados.
-          </p>
+              <p className="mt-1 text-xs text-zinc-400">
+                {activeProducts.length} artículos activos
+              </p>
+            </div>
 
-          <Link
-            href="/sell"
-            className="mt-5 block rounded-2xl border border-black py-4 text-center text-sm font-bold"
-          >
-            Publicar artículo
-          </Link>
+            <Link
+              href="/sell"
+              className="rounded-xl bg-black px-4 py-2 text-xs font-bold text-white"
+            >
+              + Publicar
+            </Link>
+          </div>
+
+          {activeProducts.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-sm font-semibold">
+                Todavía no tienes artículos publicados.
+              </p>
+
+              <Link
+                href="/sell"
+                className="mt-4 inline-block rounded-2xl border border-black px-5 py-3 text-sm font-bold"
+              >
+                Publicar artículo
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-6 grid grid-cols-2 gap-x-2 gap-y-6">
+              {activeProducts.map((product) => {
+                const cover =
+                  product.product_images?.[0]?.image_url;
+
+                return (
+                  <Link
+                    key={product.id}
+                    href={`/product/${product.id}`}
+                  >
+                    <article>
+                      <div className="aspect-[3/4] overflow-hidden rounded-xl bg-zinc-100">
+                        {cover ? (
+                          <img
+                            src={cover}
+                            alt={product.title}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                            Sin foto
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3">
+                        {product.brand && (
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">
+                            {product.brand}
+                          </p>
+                        )}
+
+                        <h3 className="mt-1 truncate text-sm font-semibold">
+                          {product.title}
+                        </h3>
+
+                        <p className="mt-2 text-lg font-black">
+                          ${Number(product.price).toFixed(2)}
+                        </p>
+                      </div>
+                    </article>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </section>
       </div>
     </main>
