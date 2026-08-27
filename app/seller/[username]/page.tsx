@@ -59,7 +59,7 @@ export default function SellerPage() {
             <ArrowLeft size={20} />
           </Link>
 
-          <p className="font-bold">@andreacloset</p>
+          <p className="font-bold">@ana'scloset</p>
 
           <div className="h-10 w-10" />
         </div>
@@ -91,7 +91,7 @@ export default function SellerPage() {
 
           <div className="mt-5">
             <div className="flex items-center gap-1">
-              <h1 className="text-xl font-bold">Andrea's Closet</h1>
+              <h1 className="text-xl font-bold">Ana's Closet</h1>
               <ShieldCheck size={17} />
             </div>
 

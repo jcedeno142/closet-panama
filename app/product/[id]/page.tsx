@@ -104,7 +104,7 @@ export default function ProductPage() {
 
             <div className="ml-3 flex-1">
               <div className="flex items-center gap-1">
-                <p className="font-bold">@andreacloset</p>
+                <p className="font-bold">@ana'scloset</p>
                 <ShieldCheck size={15} />
               </div>
 
