@@ -7,6 +7,7 @@ import {
   Check,
   Clock3,
   MessageCircle,
+  Repeat2,
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -17,7 +18,22 @@ type Offer = {
   buyer_id: string;
   seller_id: string;
   amount: number;
+  accepted_amount: number | null;
   status: string;
+  created_at: string;
+};
+
+type OfferEvent = {
+  id: string;
+  offer_id: string;
+  actor_id: string;
+  event_type:
+    | "offer"
+    | "counter"
+    | "accepted"
+    | "declined"
+    | "cancelled";
+  amount: number | null;
   created_at: string;
 };
 
@@ -41,11 +57,15 @@ type Profile = {
 
 type OfferCard = Offer & {
   product?: Product;
-  otherUser?: Profile;
+  buyer?: Profile;
+  seller?: Profile;
+  events: OfferEvent[];
 };
 
 export default function InboxPage() {
   const supabase = createClient();
+
+  const [currentUserId, setCurrentUserId] = useState("");
 
   const [activeTab, setActiveTab] = useState<
     "received" | "sent"
@@ -62,6 +82,15 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
+  const [counterOffer, setCounterOffer] =
+    useState<OfferCard | null>(null);
+
+  const [counterAmount, setCounterAmount] =
+    useState("");
+
+  const [submittingCounter, setSubmittingCounter] =
+    useState(false);
+
   const loadInbox = useCallback(async () => {
     setLoading(true);
     setMessage("");
@@ -76,12 +105,26 @@ export default function InboxPage() {
       return;
     }
 
+    setCurrentUserId(user.id);
+
+    // RECEIVED
     const { data: receivedData, error: receivedError } =
       await supabase
         .from("offers")
-        .select("*")
+        .select(`
+          id,
+          product_id,
+          buyer_id,
+          seller_id,
+          amount,
+          accepted_amount,
+          status,
+          created_at
+        `)
         .eq("seller_id", user.id)
-        .order("created_at", { ascending: false });
+        .order("created_at", {
+          ascending: false,
+        });
 
     if (receivedError) {
       setMessage(receivedError.message);
@@ -89,12 +132,24 @@ export default function InboxPage() {
       return;
     }
 
+    // SENT
     const { data: sentData, error: sentError } =
       await supabase
         .from("offers")
-        .select("*")
+        .select(`
+          id,
+          product_id,
+          buyer_id,
+          seller_id,
+          amount,
+          accepted_amount,
+          status,
+          created_at
+        `)
         .eq("buyer_id", user.id)
-        .order("created_at", { ascending: false });
+        .order("created_at", {
+          ascending: false,
+        });
 
     if (sentError) {
       setMessage(sentError.message);
@@ -107,9 +162,17 @@ export default function InboxPage() {
       ...(sentData || []),
     ] as Offer[];
 
+    const offerIds = [
+      ...new Set(
+        allOffers.map((offer) => offer.id)
+      ),
+    ];
+
     const productIds = [
       ...new Set(
-        allOffers.map((offer) => offer.product_id)
+        allOffers.map(
+          (offer) => offer.product_id
+        )
       ),
     ];
 
@@ -123,22 +186,29 @@ export default function InboxPage() {
     ];
 
     let productMap: Record<string, Product> = {};
+
     let profileMap: Record<string, Profile> = {};
 
+    let eventMap: Record<string, OfferEvent[]> =
+      {};
+
+    // PRODUCTS
     if (productIds.length > 0) {
-      const { data: productData, error: productError } =
-        await supabase
-          .from("products")
-          .select(`
-            id,
-            title,
-            price,
-            product_images (
-              image_url,
-              position
-            )
-          `)
-          .in("id", productIds);
+      const {
+        data: productData,
+        error: productError,
+      } = await supabase
+        .from("products")
+        .select(`
+          id,
+          title,
+          price,
+          product_images (
+            image_url,
+            position
+          )
+        `)
+        .in("id", productIds);
 
       if (productError) {
         setMessage(productError.message);
@@ -153,18 +223,26 @@ export default function InboxPage() {
             ...product,
             product_images: [
               ...(product.product_images || []),
-            ].sort((a, b) => a.position - b.position),
+            ].sort(
+              (a, b) =>
+                a.position - b.position
+            ),
           },
         ])
       );
     }
 
+    // PROFILES
     if (profileIds.length > 0) {
-      const { data: profileData, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("id, username, display_name")
-          .in("id", profileIds);
+      const {
+        data: profileData,
+        error: profileError,
+      } = await supabase
+        .from("profiles")
+        .select(
+          "id, username, display_name"
+        )
+        .in("id", profileIds);
 
       if (profileError) {
         setMessage(profileError.message);
@@ -173,31 +251,84 @@ export default function InboxPage() {
       }
 
       profileMap = Object.fromEntries(
-        (profileData || []).map((profile) => [
-          profile.id,
-          profile,
-        ])
+        (profileData || []).map(
+          (profile) => [
+            profile.id,
+            profile,
+          ]
+        )
       );
+    }
+
+    // NEGOTIATION EVENTS
+    if (offerIds.length > 0) {
+      const {
+        data: eventData,
+        error: eventError,
+      } = await supabase
+        .from("offer_events")
+        .select(`
+          id,
+          offer_id,
+          actor_id,
+          event_type,
+          amount,
+          created_at
+        `)
+        .in("offer_id", offerIds)
+        .order("created_at", {
+          ascending: true,
+        });
+
+      if (eventError) {
+        setMessage(eventError.message);
+        setLoading(false);
+        return;
+      }
+
+      for (const event of eventData || []) {
+        if (!eventMap[event.offer_id]) {
+          eventMap[event.offer_id] = [];
+        }
+
+        eventMap[event.offer_id].push(
+          event as OfferEvent
+        );
+      }
     }
 
     const receivedCards: OfferCard[] = (
       receivedData || []
     ).map((offer) => ({
       ...offer,
-      product: productMap[offer.product_id],
-      otherUser: profileMap[offer.buyer_id],
+      product:
+        productMap[offer.product_id],
+      buyer:
+        profileMap[offer.buyer_id],
+      seller:
+        profileMap[offer.seller_id],
+      events:
+        eventMap[offer.id] || [],
     }));
 
     const sentCards: OfferCard[] = (
       sentData || []
     ).map((offer) => ({
       ...offer,
-      product: productMap[offer.product_id],
-      otherUser: profileMap[offer.seller_id],
+      product:
+        productMap[offer.product_id],
+      buyer:
+        profileMap[offer.buyer_id],
+      seller:
+        profileMap[offer.seller_id],
+      events:
+        eventMap[offer.id] || [],
     }));
 
     setReceivedOffers(receivedCards);
+
     setSentOffers(sentCards);
+
     setLoading(false);
   }, [supabase]);
 
@@ -205,22 +336,267 @@ export default function InboxPage() {
     loadInbox();
   }, [loadInbox]);
 
-  async function updateOfferStatus(
-    offerId: string,
-    status: "accepted" | "declined"
+  function getLatestMoneyEvent(
+    offer: OfferCard
   ) {
+    return [...offer.events]
+      .reverse()
+      .find(
+        (event) =>
+          event.event_type === "offer" ||
+          event.event_type === "counter"
+      );
+  }
+
+  function canCurrentUserRespond(
+    offer: OfferCard
+  ) {
+    if (
+      offer.status === "accepted" ||
+      offer.status === "declined" ||
+      offer.status === "cancelled"
+    ) {
+      return false;
+    }
+
+    const latest =
+      getLatestMoneyEvent(offer);
+
+    if (!latest) return false;
+
+    // Person who made the last monetary
+    // offer must wait for the other person.
+    return (
+      latest.actor_id !== currentUserId
+    );
+  }
+
+  function openCounterModal(
+    offer: OfferCard
+  ) {
+    const latest =
+      getLatestMoneyEvent(offer);
+
+    if (!latest?.amount) return;
+
+    setCounterOffer(offer);
+
+    setCounterAmount("");
+    setMessage("");
+  }
+
+  async function submitCounterOffer(
+    event: React.FormEvent
+  ) {
+    event.preventDefault();
+
+    if (!counterOffer) return;
+
+    const amount =
+      Number(counterAmount);
+
+    if (!amount || amount <= 0) {
+      setMessage(
+        "Ingresa una contraoferta válida."
+      );
+      return;
+    }
+
+    const latest =
+      getLatestMoneyEvent(
+        counterOffer
+      );
+
+    if (!latest?.amount) {
+      setMessage(
+        "No pudimos encontrar la última oferta."
+      );
+      return;
+    }
+
+    // Prevent offering full listing price
+    if (
+      counterOffer.product &&
+      amount >=
+        Number(
+          counterOffer.product.price
+        )
+    ) {
+      setMessage(
+        "La contraoferta debe ser menor que el precio publicado."
+      );
+      return;
+    }
+
+    if (
+      amount === Number(latest.amount)
+    ) {
+      setMessage(
+        "La contraoferta debe ser diferente a la oferta actual."
+      );
+      return;
+    }
+
+    setSubmittingCounter(true);
+
     setMessage("");
 
-    const { error } = await supabase
+    // Insert new negotiation event
+    const { error: eventError } =
+      await supabase
+        .from("offer_events")
+        .insert({
+          offer_id:
+            counterOffer.id,
+          actor_id:
+            currentUserId,
+          event_type:
+            "counter",
+          amount,
+        });
+
+    if (eventError) {
+      setMessage(
+        eventError.message
+      );
+
+      setSubmittingCounter(false);
+
+      return;
+    }
+
+    // Keep main offer open
+    const { error: offerError } =
+      await supabase
+        .from("offers")
+        .update({
+          status: "countered",
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq("id", counterOffer.id);
+
+    if (offerError) {
+      setMessage(
+        offerError.message
+      );
+
+      setSubmittingCounter(false);
+
+      return;
+    }
+
+    setCounterOffer(null);
+
+    setCounterAmount("");
+
+    setSubmittingCounter(false);
+
+    await loadInbox();
+  }
+
+  async function acceptCurrentOffer(
+    offer: OfferCard
+  ) {
+    const latest =
+      getLatestMoneyEvent(offer);
+
+    if (!latest?.amount) {
+      setMessage(
+        "No pudimos encontrar la oferta actual."
+      );
+
+      return;
+    }
+
+    const finalAmount =
+      Number(latest.amount);
+
+    const {
+      error: eventError,
+    } = await supabase
+      .from("offer_events")
+      .insert({
+        offer_id: offer.id,
+        actor_id:
+          currentUserId,
+        event_type:
+          "accepted",
+        amount: finalAmount,
+      });
+
+    if (eventError) {
+      setMessage(
+        eventError.message
+      );
+
+      return;
+    }
+
+    const {
+      error: offerError,
+    } = await supabase
       .from("offers")
       .update({
-        status,
-        updated_at: new Date().toISOString(),
+        status: "accepted",
+        accepted_amount:
+          finalAmount,
+        updated_at:
+          new Date().toISOString(),
       })
-      .eq("id", offerId);
+      .eq("id", offer.id);
 
-    if (error) {
-      setMessage(error.message);
+    if (offerError) {
+      setMessage(
+        offerError.message
+      );
+
+      return;
+    }
+
+    await loadInbox();
+  }
+
+  async function declineOffer(
+    offer: OfferCard
+  ) {
+    const {
+      error: eventError,
+    } = await supabase
+      .from("offer_events")
+      .insert({
+        offer_id: offer.id,
+        actor_id:
+          currentUserId,
+        event_type:
+          "declined",
+        amount: null,
+      });
+
+    if (eventError) {
+      setMessage(
+        eventError.message
+      );
+
+      return;
+    }
+
+    const {
+      error: offerError,
+    } = await supabase
+      .from("offers")
+      .update({
+        status: "declined",
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq("id", offer.id);
+
+    if (offerError) {
+      setMessage(
+        offerError.message
+      );
+
       return;
     }
 
@@ -234,11 +610,14 @@ export default function InboxPage() {
 
   return (
     <main className="min-h-screen bg-white pb-10 text-black">
+
       <div className="mx-auto max-w-md">
 
         {/* HEADER */}
         <header className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
+
           <div className="flex items-center px-4 py-4">
+
             <Link
               href="/"
               className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"
@@ -247,6 +626,7 @@ export default function InboxPage() {
             </Link>
 
             <div className="ml-4">
+
               <h1 className="text-lg font-bold">
                 Inbox
               </h1>
@@ -254,26 +634,35 @@ export default function InboxPage() {
               <p className="text-xs text-zinc-400">
                 Ofertas y negociaciones
               </p>
+
             </div>
           </div>
 
           {/* TABS */}
           <div className="flex">
+
             <button
               type="button"
               onClick={() =>
-                setActiveTab("received")
+                setActiveTab(
+                  "received"
+                )
               }
               className={`flex-1 border-b-2 py-3 text-sm font-bold ${
-                activeTab === "received"
+                activeTab ===
+                "received"
                   ? "border-black text-black"
                   : "border-transparent text-zinc-400"
               }`}
             >
               Recibidas
-              {receivedOffers.length > 0 && (
+
+              {receivedOffers.length >
+                0 && (
                 <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px]">
-                  {receivedOffers.length}
+                  {
+                    receivedOffers.length
+                  }
                 </span>
               )}
             </button>
@@ -284,15 +673,20 @@ export default function InboxPage() {
                 setActiveTab("sent")
               }
               className={`flex-1 border-b-2 py-3 text-sm font-bold ${
-                activeTab === "sent"
+                activeTab ===
+                "sent"
                   ? "border-black text-black"
                   : "border-transparent text-zinc-400"
               }`}
             >
               Enviadas
-              {sentOffers.length > 0 && (
+
+              {sentOffers.length >
+                0 && (
                 <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px]">
-                  {sentOffers.length}
+                  {
+                    sentOffers.length
+                  }
                 </span>
               )}
             </button>
@@ -305,199 +699,475 @@ export default function InboxPage() {
           </div>
         )}
 
-        {!loading && message && (
-          <div className="mx-4 mt-4 rounded-xl bg-zinc-100 p-4 text-sm">
-            {message}
-          </div>
-        )}
+        {!loading &&
+          message && (
+            <div className="mx-4 mt-4 rounded-xl bg-zinc-100 p-4 text-sm">
+              {message}
+            </div>
+          )}
 
         {!loading &&
           !message &&
           offers.length === 0 && (
             <div className="px-5 py-20 text-center">
+
               <MessageCircle
                 size={34}
                 className="mx-auto text-zinc-300"
               />
 
               <h2 className="mt-4 font-bold">
-                {activeTab === "received"
+                {activeTab ===
+                "received"
                   ? "No tienes ofertas recibidas"
                   : "No has enviado ofertas"}
               </h2>
 
-              <p className="mt-2 text-sm text-zinc-500">
-                {activeTab === "received"
-                  ? "Cuando alguien haga una oferta por uno de tus artículos, aparecerá aquí."
-                  : "Las ofertas que hagas a otros vendedores aparecerán aquí."}
-              </p>
             </div>
           )}
 
         {!loading &&
-          !message &&
           offers.length > 0 && (
             <section className="divide-y divide-zinc-100">
-              {offers.map((offer) => {
-                const cover =
-                  offer.product
-                    ?.product_images?.[0]
-                    ?.image_url;
 
-                const otherName =
-                  offer.otherUser
-                    ?.display_name ||
-                  offer.otherUser
-                    ?.username ||
-                  "Usuario";
+              {offers.map(
+                (offer) => {
+                  const cover =
+                    offer.product
+                      ?.product_images?.[0]
+                      ?.image_url;
 
-                return (
-                  <article
-                    key={offer.id}
-                    className="px-4 py-5"
-                  >
-                    <div className="flex gap-4">
+                  const otherUser =
+                    activeTab ===
+                    "received"
+                      ? offer.buyer
+                      : offer.seller;
 
-                      {/* IMAGE */}
-                      <Link
-                        href={`/product/${offer.product_id}`}
-                        className="h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100"
-                      >
-                        {cover ? (
-                          <img
-                            src={cover}
-                            alt={
-                              offer.product
-                                ?.title ||
-                              "Producto"
-                            }
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">
-                            Sin foto
-                          </div>
-                        )}
-                      </Link>
+                  const latest =
+                    getLatestMoneyEvent(
+                      offer
+                    );
 
-                      {/* INFO */}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-zinc-400">
-                          {activeTab ===
-                          "received"
-                            ? "Oferta de"
-                            : "Oferta para"}
-                        </p>
+                  const canRespond =
+                    canCurrentUserRespond(
+                      offer
+                    );
 
-                        <p className="mt-1 truncate text-sm font-bold">
-                          @{offer.otherUser?.username ||
-                            "usuario"}
-                        </p>
+                  return (
+                    <article
+                      key={offer.id}
+                      className="px-4 py-5"
+                    >
+
+                      {/* PRODUCT */}
+                      <div className="flex gap-4">
 
                         <Link
                           href={`/product/${offer.product_id}`}
+                          className="h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100"
                         >
-                          <h2 className="mt-2 truncate text-sm font-semibold">
-                            {offer.product?.title ||
-                              "Producto"}
-                          </h2>
-                        </Link>
 
-                        <div className="mt-2 flex items-end justify-between">
-                          <div>
-                            <p className="text-xs text-zinc-400">
-                              Oferta
-                            </p>
-
-                            <p className="text-xl font-black">
-                              $
-                              {Number(
-                                offer.amount
-                              ).toFixed(2)}
-                            </p>
-                          </div>
-
-                          {offer.product && (
-                            <div className="text-right">
-                              <p className="text-[10px] text-zinc-400">
-                                Precio
-                              </p>
-
-                              <p className="text-sm font-semibold">
-                                $
-                                {Number(
-                                  offer.product
-                                    .price
-                                ).toFixed(2)}
-                              </p>
+                          {cover ? (
+                            <img
+                              src={
+                                cover
+                              }
+                              alt={
+                                offer
+                                  .product
+                                  ?.title ||
+                                "Producto"
+                              }
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">
+                              Sin foto
                             </div>
                           )}
+
+                        </Link>
+
+                        <div className="min-w-0 flex-1">
+
+                          <p className="text-xs text-zinc-400">
+                            {activeTab ===
+                            "received"
+                              ? "Negociación con comprador"
+                              : "Negociación con vendedor"}
+                          </p>
+
+                          <p className="mt-1 truncate text-sm font-bold">
+                            @
+                            {otherUser?.username ||
+                              "usuario"}
+                          </p>
+
+                          <Link
+                            href={`/product/${offer.product_id}`}
+                          >
+                            <h2 className="mt-2 truncate text-sm font-semibold">
+                              {offer
+                                .product
+                                ?.title ||
+                                "Producto"}
+                            </h2>
+                          </Link>
+
+                          {offer.product && (
+                            <p className="mt-1 text-xs text-zinc-400">
+                              Precio original: $
+                              {Number(
+                                offer
+                                  .product
+                                  .price
+                              ).toFixed(
+                                2
+                              )}
+                            </p>
+                          )}
+
                         </div>
                       </div>
-                    </div>
 
-                    {/* STATUS */}
-                    <div className="mt-4">
-                      <StatusBadge
-                        status={offer.status}
-                      />
-                    </div>
+                      {/* NEGOTIATION HISTORY */}
+                      <div className="mt-5 space-y-3">
 
-                    {/* SELLER ACTIONS */}
-                    {activeTab ===
-                      "received" &&
-                      offer.status ===
-                        "pending" && (
-                        <div className="mt-4 grid grid-cols-2 gap-2">
+                        {offer.events
+                          .filter(
+                            (
+                              event
+                            ) =>
+                              event.event_type ===
+                                "offer" ||
+                              event.event_type ===
+                                "counter"
+                          )
+                          .map(
+                            (
+                              event
+                            ) => {
+                              const isMe =
+                                event.actor_id ===
+                                currentUserId;
+
+                              return (
+                                <div
+                                  key={
+                                    event.id
+                                  }
+                                  className={`flex ${
+                                    isMe
+                                      ? "justify-end"
+                                      : "justify-start"
+                                  }`}
+                                >
+                                  <div
+                                    className={`max-w-[78%] rounded-2xl px-4 py-3 ${
+                                      isMe
+                                        ? "bg-black text-white"
+                                        : "bg-zinc-100 text-black"
+                                    }`}
+                                  >
+                                    <p
+                                      className={`text-[10px] font-semibold ${
+                                        isMe
+                                          ? "text-zinc-300"
+                                          : "text-zinc-500"
+                                      }`}
+                                    >
+                                      {isMe
+                                        ? "Tú"
+                                        : event.actor_id ===
+                                          offer.buyer_id
+                                        ? "Comprador"
+                                        : "Vendedor"}
+                                    </p>
+
+                                    <p className="mt-1 text-lg font-black">
+                                      $
+                                      {Number(
+                                        event.amount
+                                      ).toFixed(
+                                        2
+                                      )}
+                                    </p>
+
+                                    <p
+                                      className={`mt-1 text-[10px] ${
+                                        isMe
+                                          ? "text-zinc-300"
+                                          : "text-zinc-500"
+                                      }`}
+                                    >
+                                      {event.event_type ===
+                                      "offer"
+                                        ? "Oferta"
+                                        : "Contraoferta"}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            }
+                          )}
+
+                      </div>
+
+                      {/* CURRENT OFFER */}
+                      {latest?.amount &&
+                        offer.status !==
+                          "accepted" &&
+                        offer.status !==
+                          "declined" && (
+                          <div className="mt-5 rounded-xl bg-zinc-50 p-4">
+
+                            <p className="text-xs text-zinc-500">
+                              Oferta actual
+                            </p>
+
+                            <p className="mt-1 text-2xl font-black">
+                              $
+                              {Number(
+                                latest.amount
+                              ).toFixed(
+                                2
+                              )}
+                            </p>
+
+                          </div>
+                        )}
+
+                      {/* STATUS */}
+                      <div className="mt-4">
+
+                        <StatusBadge
+                          status={
+                            offer.status
+                          }
+                        />
+
+                      </div>
+
+                      {/* ACTIONS */}
+                      {canRespond && (
+                        <div className="mt-4 grid grid-cols-3 gap-2">
 
                           <button
                             type="button"
                             onClick={() =>
-                              updateOfferStatus(
-                                offer.id,
-                                "accepted"
+                              acceptCurrentOffer(
+                                offer
                               )
                             }
-                            className="flex items-center justify-center gap-2 rounded-xl bg-black py-3 text-sm font-bold text-white"
+                            className="flex items-center justify-center gap-1 rounded-xl bg-black py-3 text-xs font-bold text-white"
                           >
-                            <Check size={16} />
+                            <Check
+                              size={
+                                15
+                              }
+                            />
+
                             Aceptar
                           </button>
 
                           <button
                             type="button"
                             onClick={() =>
-                              updateOfferStatus(
-                                offer.id,
-                                "declined"
+                              openCounterModal(
+                                offer
                               )
                             }
-                            className="flex items-center justify-center gap-2 rounded-xl border border-zinc-300 py-3 text-sm font-bold"
+                            className="flex items-center justify-center gap-1 rounded-xl border border-black py-3 text-xs font-bold"
                           >
-                            <X size={16} />
+                            <Repeat2
+                              size={
+                                15
+                              }
+                            />
+
+                            Contraoferta
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              declineOffer(
+                                offer
+                              )
+                            }
+                            className="flex items-center justify-center gap-1 rounded-xl border border-zinc-300 py-3 text-xs font-bold"
+                          >
+                            <X
+                              size={
+                                15
+                              }
+                            />
+
                             Rechazar
                           </button>
 
                         </div>
                       )}
 
-                    {/* BUYER INFO */}
-                    {activeTab ===
-                      "sent" &&
-                      offer.status ===
-                        "pending" && (
-                        <div className="mt-4 flex items-center gap-2 rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
-                          <Clock3 size={14} />
+                      {!canRespond &&
+                        offer.status !==
+                          "accepted" &&
+                        offer.status !==
+                          "declined" && (
+                          <div className="mt-4 flex items-center gap-2 rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
 
-                          Esperando respuesta del vendedor.
+                            <Clock3
+                              size={
+                                14
+                              }
+                            />
+
+                            Esperando respuesta de la otra persona.
+
+                          </div>
+                        )}
+
+                      {offer.status ===
+                        "accepted" && (
+                        <div className="mt-4 rounded-xl bg-green-50 p-4">
+
+                          <p className="text-xs font-semibold text-green-700">
+                            Oferta aceptada
+                          </p>
+
+                          <p className="mt-1 text-xl font-black text-green-900">
+                            $
+                            {Number(
+                              offer.accepted_amount ||
+                                latest?.amount ||
+                                offer.amount
+                            ).toFixed(
+                              2
+                            )}
+                          </p>
+
                         </div>
                       )}
-                  </article>
-                );
-              })}
+
+                    </article>
+                  );
+                }
+              )}
+
             </section>
           )}
       </div>
+
+      {/* COUNTEROFFER MODAL */}
+      {counterOffer && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 sm:items-center">
+
+          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl">
+
+            <div className="flex items-center justify-between">
+
+              <div>
+
+                <h2 className="text-xl font-bold">
+                  Contraofertar
+                </h2>
+
+                <p className="mt-1 text-sm text-zinc-500">
+                  Última oferta: $
+                  {Number(
+                    getLatestMoneyEvent(
+                      counterOffer
+                    )?.amount ||
+                      0
+                  ).toFixed(2)}
+                </p>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCounterOffer(
+                    null
+                  );
+
+                  setCounterAmount(
+                    ""
+                  );
+
+                  setMessage("");
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"
+              >
+                <X size={18} />
+              </button>
+
+            </div>
+
+            <form
+              onSubmit={
+                submitCounterOffer
+              }
+              className="mt-6"
+            >
+
+              <label className="text-sm font-bold">
+                Nueva oferta
+              </label>
+
+              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 px-4">
+
+                <span className="text-lg font-bold">
+                  $
+                </span>
+
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={
+                    counterAmount
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setCounterAmount(
+                      event
+                        .target
+                        .value
+                    )
+                  }
+                  placeholder="0.00"
+                  className="w-full px-3 py-4 text-xl font-bold outline-none"
+                  autoFocus
+                />
+
+              </div>
+
+              {message && (
+                <div className="mt-4 rounded-xl bg-zinc-100 p-4 text-sm">
+                  {message}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={
+                  submittingCounter
+                }
+                className="mt-5 w-full rounded-2xl bg-black py-4 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {submittingCounter
+                  ? "Enviando..."
+                  : "Enviar contraoferta"}
+              </button>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+
     </main>
   );
 }
@@ -507,28 +1177,44 @@ function StatusBadge({
 }: {
   status: string;
 }) {
-  const styles: Record<string, string> = {
+  const styles: Record<
+    string,
+    string
+  > = {
     pending:
       "bg-amber-50 text-amber-700",
-    accepted:
-      "bg-green-50 text-green-700",
-    declined:
-      "bg-red-50 text-red-700",
+
     countered:
       "bg-blue-50 text-blue-700",
-    expired:
-      "bg-zinc-100 text-zinc-500",
+
+    accepted:
+      "bg-green-50 text-green-700",
+
+    declined:
+      "bg-red-50 text-red-700",
+
     cancelled:
       "bg-zinc-100 text-zinc-500",
   };
 
-  const labels: Record<string, string> = {
-    pending: "Pendiente",
-    accepted: "Aceptada",
-    declined: "Rechazada",
-    countered: "Contraoferta",
-    expired: "Expirada",
-    cancelled: "Cancelada",
+  const labels: Record<
+    string,
+    string
+  > = {
+    pending:
+      "Negociación abierta",
+
+    countered:
+      "Negociación abierta",
+
+    accepted:
+      "Aceptada",
+
+    declined:
+      "Rechazada",
+
+    cancelled:
+      "Cancelada",
   };
 
   return (
@@ -538,7 +1224,8 @@ function StatusBadge({
         "bg-zinc-100 text-zinc-500"
       }`}
     >
-      {labels[status] || status}
+      {labels[status] ||
+        status}
     </span>
   );
 }
