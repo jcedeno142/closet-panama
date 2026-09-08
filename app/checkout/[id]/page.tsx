@@ -62,7 +62,12 @@ export default function CheckoutPage() {
 
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [simulating, setSimulating] = useState(false);
   const [message, setMessage] = useState("");
+
+  const [createdPaymentId, setCreatedPaymentId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     async function loadCheckout() {
@@ -164,7 +169,6 @@ export default function CheckoutPage() {
       }
 
       setSeller(sellerData);
-
       setLoading(false);
     }
 
@@ -177,44 +181,121 @@ export default function CheckoutPage() {
     setProcessing(true);
     setMessage("");
 
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        payment_method: paymentMethod,
-        fulfillment_method: fulfillmentMethod,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
+    try {
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update({
+          payment_method: paymentMethod,
+          fulfillment_method: fulfillmentMethod,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id);
 
-    if (error) {
-      setMessage(error.message);
+      if (updateError) {
+        setMessage(updateError.message);
+        return;
+      }
+
+      const response = await fetch("/api/payments/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId: order.id,
+          paymentMethod,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          data.error || "No pudimos preparar el pago."
+        );
+        return;
+      }
+
+      const paymentId = data.payment?.id;
+
+      if (!paymentId) {
+        setMessage(
+          "El pago fue creado, pero no recibimos su ID."
+        );
+        return;
+      }
+
+      setCreatedPaymentId(paymentId);
+
+      if (paymentMethod === "yappy") {
+        setMessage(
+          "Pago Yappy preparado. Puedes simular la confirmación mientras desarrollamos."
+        );
+      } else {
+        setMessage(
+          "Pago con tarjeta preparado. Puedes simular la confirmación mientras desarrollamos."
+        );
+      }
+    } catch (error) {
+      console.error("Checkout error:", error);
+
+      setMessage(
+        "Ocurrió un error al preparar el pago."
+      );
+    } finally {
       setProcessing(false);
-      return;
     }
+  }
 
-    /*
-      NEXT STEP:
+  async function simulateSuccessfulPayment() {
+    if (!createdPaymentId) return;
 
-      This is where we will call our secure backend:
+    setSimulating(true);
+    setMessage("");
 
-      POST /api/payments/create
-
-      The backend will communicate with Tilopay/Yappy.
-
-      We DO NOT put private payment credentials here.
-    */
-
-    if (paymentMethod === "yappy") {
-      setMessage(
-        "Yappy seleccionado. En el siguiente paso conectaremos el Botón de Pago Yappy."
+    try {
+      const response = await fetch(
+        "/api/payments/test-confirm",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            paymentId: createdPaymentId,
+          }),
+        }
       );
-    } else {
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          data.error ||
+            "No pudimos simular la confirmación."
+        );
+        return;
+      }
+
       setMessage(
-        "Tarjeta seleccionada. En el siguiente paso conectaremos el checkout seguro de Tilopay."
+        "Pago confirmado correctamente. Redirigiendo al pedido..."
       );
+
+      window.setTimeout(() => {
+        window.location.href = "/orders";
+      }, 900);
+    } catch (error) {
+      console.error(
+        "Simulated payment error:",
+        error
+      );
+
+      setMessage(
+        "Ocurrió un error al simular el pago."
+      );
+    } finally {
+      setSimulating(false);
     }
-
-    setProcessing(false);
   }
 
   if (loading) {
@@ -227,7 +308,10 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!order || message.startsWith("No pudimos encontrar")) {
+  if (
+    !order ||
+    message.startsWith("No pudimos encontrar")
+  ) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
         <div className="text-center">
@@ -256,8 +340,6 @@ export default function CheckoutPage() {
   return (
     <main className="min-h-screen bg-zinc-50 pb-32 text-black">
       <div className="mx-auto max-w-md">
-
-        {/* HEADER */}
         <header className="sticky top-0 z-40 flex items-center border-b border-zinc-100 bg-white px-4 py-4">
           <Link
             href="/orders"
@@ -277,10 +359,8 @@ export default function CheckoutPage() {
           </div>
         </header>
 
-        {/* PRODUCT */}
         <section className="bg-white px-5 py-5">
           <div className="flex gap-4">
-
             <div className="h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
               {cover ? (
                 <img
@@ -312,13 +392,11 @@ export default function CheckoutPage() {
                 ${Number(order.amount).toFixed(2)}
               </p>
             </div>
-
           </div>
         </section>
 
         <div className="h-2" />
 
-        {/* DELIVERY */}
         <section className="bg-white px-5 py-6">
           <div className="flex items-center gap-2">
             <Truck size={19} />
@@ -329,9 +407,10 @@ export default function CheckoutPage() {
           </div>
 
           <div className="mt-4 space-y-3">
-
             <Choice
-              selected={fulfillmentMethod === "shipping"}
+              selected={
+                fulfillmentMethod === "shipping"
+              }
               title="Envío nacional"
               description="Enviar el artículo mediante courier."
               icon={<Truck size={20} />}
@@ -353,7 +432,9 @@ export default function CheckoutPage() {
             />
 
             <Choice
-              selected={fulfillmentMethod === "pickup"}
+              selected={
+                fulfillmentMethod === "pickup"
+              }
               title="Retiro / encuentro"
               description="Coordina un punto de entrega."
               icon={<MapPin size={20} />}
@@ -361,13 +442,11 @@ export default function CheckoutPage() {
                 setFulfillmentMethod("pickup")
               }
             />
-
           </div>
         </section>
 
         <div className="h-2" />
 
-        {/* PAYMENT */}
         <section className="bg-white px-5 py-6">
           <h2 className="font-bold">
             Método de pago
@@ -378,46 +457,36 @@ export default function CheckoutPage() {
           </p>
 
           <div className="mt-4 space-y-3">
-
-            {/* YAPPY */}
             <Choice
               selected={paymentMethod === "yappy"}
               title="Yappy"
               description="Paga rápidamente desde tu celular."
-              icon={
-                <Smartphone size={21} />
-              }
+              icon={<Smartphone size={21} />}
               onClick={() =>
                 setPaymentMethod("yappy")
               }
             />
 
-            {/* CARD */}
             <Choice
               selected={paymentMethod === "card"}
               title="Tarjeta"
               description="Visa, Mastercard y tarjetas compatibles."
-              icon={
-                <CreditCard size={21} />
-              }
+              icon={<CreditCard size={21} />}
               onClick={() =>
                 setPaymentMethod("card")
               }
             />
-
           </div>
         </section>
 
         <div className="h-2" />
 
-        {/* SUMMARY */}
         <section className="bg-white px-5 py-6">
           <h2 className="font-bold">
             Resumen
           </h2>
 
           <div className="mt-4 space-y-3 text-sm">
-
             <div className="flex justify-between">
               <span className="text-zinc-500">
                 Artículo
@@ -449,7 +518,6 @@ export default function CheckoutPage() {
                 </span>
               </div>
             </div>
-
           </div>
         </section>
 
@@ -459,12 +527,29 @@ export default function CheckoutPage() {
           </div>
         )}
 
+        {process.env.NODE_ENV !== "production" &&
+          createdPaymentId && (
+            <div className="mx-5 mb-6">
+              <button
+                type="button"
+                onClick={simulateSuccessfulPayment}
+                disabled={simulating}
+                className="w-full rounded-2xl border border-dashed border-zinc-400 bg-white px-5 py-4 text-sm font-bold text-black disabled:opacity-50"
+              >
+                {simulating
+                  ? "Simulando pago..."
+                  : "Simular pago exitoso"}
+              </button>
+
+              <p className="mt-2 text-center text-[11px] text-zinc-400">
+                Solo disponible durante desarrollo.
+              </p>
+            </div>
+          )}
       </div>
 
-      {/* PAY BAR */}
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white p-3">
         <div className="mx-auto max-w-md">
-
           <button
             type="button"
             onClick={continueToPayment}
@@ -485,14 +570,12 @@ export default function CheckoutPage() {
               {processing
                 ? "Procesando..."
                 : paymentMethod === "yappy"
-                ? "Continuar con Yappy"
-                : "Pagar con tarjeta"}
+                  ? "Continuar con Yappy"
+                  : "Pagar con tarjeta"}
 
               <ChevronRight size={18} />
             </div>
-
           </button>
-
         </div>
       </div>
     </main>

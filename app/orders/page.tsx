@@ -1,13 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Box,
   CheckCircle2,
+  ChevronRight,
   Clock3,
-  Package,
+  MapPin,
+  PackageCheck,
   ShoppingBag,
+  Store,
   Truck,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -15,53 +19,52 @@ import { createClient } from "@/lib/supabase/client";
 type Order = {
   id: string;
   product_id: string;
-  offer_id: string | null;
   buyer_id: string;
   seller_id: string;
   amount: number;
   status: string;
   fulfillment_method: string | null;
+  payment_method: string | null;
   created_at: string;
 };
 
-type ProductImage = {
-  image_url: string;
-  position: number;
-};
-
-type Product = {
+type ProductInfo = {
   id: string;
   title: string;
-  product_images: ProductImage[];
+  image: string | null;
 };
 
-type Profile = {
+type ProfileInfo = {
   id: string;
-  username: string;
+  username: string | null;
   display_name: string | null;
 };
 
-type OrderCard = Order & {
-  product?: Product;
-  otherUser?: Profile;
+type OrderWithDetails = Order & {
+  product?: ProductInfo;
+  buyer?: ProfileInfo;
+  seller?: ProfileInfo;
 };
 
+type Tab = "buying" | "selling";
+
 export default function OrdersPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  const [activeTab, setActiveTab] = useState<
-    "buying" | "selling"
-  >("buying");
-
-  const [buyingOrders, setBuyingOrders] = useState<OrderCard[]>([]);
-  const [sellingOrders, setSellingOrders] = useState<OrderCard[]>([]);
-
+  const [orders, setOrders] = useState<OrderWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("buying");
+
+  const [processingId, setProcessingId] =
+    useState<string | null>(null);
+
   const [message, setMessage] = useState("");
 
-  const loadOrders = useCallback(async () => {
+  const [currentUserId, setCurrentUserId] =
+    useState<string | null>(null);
+
+  async function loadOrders() {
     setLoading(true);
-    setMessage("");
 
     const {
       data: { user },
@@ -73,140 +76,181 @@ export default function OrdersPage() {
       return;
     }
 
-    const { data: buyingData, error: buyingError } =
+    setCurrentUserId(user.id);
+
+    const { data: orderData, error: orderError } =
       await supabase
         .from("orders")
-        .select("*")
-        .eq("buyer_id", user.id)
-        .order("created_at", { ascending: false });
+        .select(`
+          id,
+          product_id,
+          buyer_id,
+          seller_id,
+          amount,
+          status,
+          fulfillment_method,
+          payment_method,
+          created_at
+        `)
+        .or(
+          `buyer_id.eq.${user.id},seller_id.eq.${user.id}`
+        )
+        .order("created_at", {
+          ascending: false,
+        });
 
-    if (buyingError) {
-      setMessage(buyingError.message);
+    if (orderError) {
+      console.error("Orders error:", orderError);
+      setMessage(orderError.message);
       setLoading(false);
       return;
     }
 
-    const { data: sellingData, error: sellingError } =
-      await supabase
-        .from("orders")
-        .select("*")
-        .eq("seller_id", user.id)
-        .order("created_at", { ascending: false });
+    const baseOrders = orderData || [];
 
-    if (sellingError) {
-      setMessage(sellingError.message);
-      setLoading(false);
-      return;
-    }
+    const detailedOrders: OrderWithDetails[] =
+      await Promise.all(
+        baseOrders.map(async (order) => {
+          const { data: productData } = await supabase
+            .from("products")
+            .select(`
+              id,
+              title,
+              product_images (
+                image_url,
+                position
+              )
+            `)
+            .eq("id", order.product_id)
+            .maybeSingle();
 
-    const allOrders = [
-      ...(buyingData || []),
-      ...(sellingData || []),
-    ] as Order[];
+          const images = [
+            ...(productData?.product_images || []),
+          ].sort(
+            (a, b) =>
+              Number(a.position) - Number(b.position)
+          );
 
-    const productIds = [
-      ...new Set(
-        allOrders.map((order) => order.product_id)
-      ),
-    ];
+          const { data: buyerData } = await supabase
+            .from("profiles")
+            .select(`
+              id,
+              username,
+              display_name
+            `)
+            .eq("id", order.buyer_id)
+            .maybeSingle();
 
-    const profileIds = [
-      ...new Set(
-        allOrders.flatMap((order) => [
-          order.buyer_id,
-          order.seller_id,
-        ])
-      ),
-    ];
+          const { data: sellerData } = await supabase
+            .from("profiles")
+            .select(`
+              id,
+              username,
+              display_name
+            `)
+            .eq("id", order.seller_id)
+            .maybeSingle();
 
-    let productMap: Record<string, Product> = {};
-    let profileMap: Record<string, Profile> = {};
+          return {
+            ...order,
 
-    if (productIds.length > 0) {
-      const { data: productData, error: productError } =
-        await supabase
-          .from("products")
-          .select(`
-            id,
-            title,
-            product_images (
-              image_url,
-              position
-            )
-          `)
-          .in("id", productIds);
+            product: productData
+              ? {
+                  id: productData.id,
+                  title: productData.title,
+                  image:
+                    images[0]?.image_url || null,
+                }
+              : undefined,
 
-      if (productError) {
-        setMessage(productError.message);
-        setLoading(false);
-        return;
-      }
-
-      productMap = Object.fromEntries(
-        (productData || []).map((product) => [
-          product.id,
-          {
-            ...product,
-            product_images: [
-              ...(product.product_images || []),
-            ].sort((a, b) => a.position - b.position),
-          },
-        ])
+            buyer: buyerData || undefined,
+            seller: sellerData || undefined,
+          };
+        })
       );
-    }
 
-    if (profileIds.length > 0) {
-      const { data: profileData, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("id, username, display_name")
-          .in("id", profileIds);
-
-      if (profileError) {
-        setMessage(profileError.message);
-        setLoading(false);
-        return;
-      }
-
-      profileMap = Object.fromEntries(
-        (profileData || []).map((profile) => [
-          profile.id,
-          profile,
-        ])
-      );
-    }
-
-    setBuyingOrders(
-      (buyingData || []).map((order) => ({
-        ...order,
-        product: productMap[order.product_id],
-        otherUser: profileMap[order.seller_id],
-      }))
-    );
-
-    setSellingOrders(
-      (sellingData || []).map((order) => ({
-        ...order,
-        product: productMap[order.product_id],
-        otherUser: profileMap[order.buyer_id],
-      }))
-    );
-
+    setOrders(detailedOrders);
     setLoading(false);
-  }, [supabase]);
+  }
 
   useEffect(() => {
     loadOrders();
-  }, [loadOrders]);
+  }, []);
 
-  const orders =
-    activeTab === "buying"
+  async function confirmReceived(orderId: string) {
+    const confirmed = window.confirm(
+      "¿Confirmas que recibiste el artículo? Esta acción completará la compra y liberará el pago al vendedor."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setMessage("");
+    setProcessingId(orderId);
+
+    try {
+      const response = await fetch(
+        "/api/orders/confirm-received",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            orderId,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          data.error ||
+            "No pudimos confirmar la entrega."
+        );
+        return;
+      }
+
+      setMessage(
+        "¡Listo! El pedido fue completado correctamente."
+      );
+
+      await loadOrders();
+    } catch (error) {
+      console.error(
+        "Confirm received error:",
+        error
+      );
+
+      setMessage(
+        "Ocurrió un error al confirmar la entrega."
+      );
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  const buyingOrders = orders.filter(
+    (order) => order.buyer_id === currentUserId
+  );
+
+  const sellingOrders = orders.filter(
+    (order) => order.seller_id === currentUserId
+  );
+
+  const visibleOrders =
+    tab === "buying"
       ? buyingOrders
       : sellingOrders;
 
   return (
-    <main className="min-h-screen bg-white pb-10 text-black">
+    <main className="min-h-screen bg-zinc-50 text-black">
       <div className="mx-auto max-w-md">
+        {/* HEADER */}
 
         <header className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
           <div className="flex items-center px-4 py-4">
@@ -218,8 +262,8 @@ export default function OrdersPage() {
             </Link>
 
             <div className="ml-4">
-              <h1 className="text-lg font-bold">
-                Pedidos
+              <h1 className="text-lg font-black">
+                Mis pedidos
               </h1>
 
               <p className="text-xs text-zinc-400">
@@ -228,11 +272,14 @@ export default function OrdersPage() {
             </div>
           </div>
 
-          <div className="flex">
+          {/* TABS */}
+
+          <div className="flex px-4">
             <button
-              onClick={() => setActiveTab("buying")}
+              type="button"
+              onClick={() => setTab("buying")}
               className={`flex-1 border-b-2 py-3 text-sm font-bold ${
-                activeTab === "buying"
+                tab === "buying"
                   ? "border-black text-black"
                   : "border-transparent text-zinc-400"
               }`}
@@ -241,9 +288,10 @@ export default function OrdersPage() {
             </button>
 
             <button
-              onClick={() => setActiveTab("selling")}
+              type="button"
+              onClick={() => setTab("selling")}
               className={`flex-1 border-b-2 py-3 text-sm font-bold ${
-                activeTab === "selling"
+                tab === "selling"
                   ? "border-black text-black"
                   : "border-transparent text-zinc-400"
               }`}
@@ -253,143 +301,397 @@ export default function OrdersPage() {
           </div>
         </header>
 
-        {loading && (
-          <div className="py-16 text-center text-sm text-zinc-500">
-            Cargando pedidos...
-          </div>
-        )}
+        {/* MESSAGE */}
 
-        {!loading && message && (
-          <div className="mx-4 mt-4 rounded-xl bg-zinc-100 p-4 text-sm">
+        {message && (
+          <div className="mx-4 mt-4 rounded-2xl bg-white p-4 text-sm">
             {message}
           </div>
         )}
 
-        {!loading &&
-          !message &&
-          orders.length === 0 && (
-            <div className="px-5 py-20 text-center">
-              <ShoppingBag
-                size={34}
-                className="mx-auto text-zinc-300"
-              />
+        {/* SELLER DASHBOARD LINK */}
 
-              <h2 className="mt-4 font-bold">
-                No hay pedidos todavía
-              </h2>
+        {tab === "selling" && (
+          <div className="px-4 pt-4">
+            <Link
+              href="/sales"
+              className="flex items-center justify-between rounded-2xl bg-black p-4 text-white"
+            >
+              <div className="flex items-center gap-3">
+                <Store size={20} />
 
-              <p className="mt-2 text-sm text-zinc-500">
-                {activeTab === "buying"
-                  ? "Tus compras aparecerán aquí."
-                  : "Tus ventas aparecerán aquí."}
-              </p>
+                <div>
+                  <p className="text-sm font-bold">
+                    Administrar ventas
+                  </p>
+
+                  <p className="text-xs text-zinc-300">
+                    Preparar y enviar pedidos
+                  </p>
+                </div>
+              </div>
+
+              <ChevronRight size={19} />
+            </Link>
+          </div>
+        )}
+
+        {/* CONTENT */}
+
+        {loading ? (
+          <div className="flex min-h-[60vh] items-center justify-center">
+            <p className="text-sm text-zinc-400">
+              Cargando pedidos...
+            </p>
+          </div>
+        ) : visibleOrders.length === 0 ? (
+          <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white">
+              {tab === "buying" ? (
+                <ShoppingBag size={27} />
+              ) : (
+                <Store size={27} />
+              )}
             </div>
-          )}
 
-        {!loading &&
-          !message &&
-          orders.length > 0 && (
-            <section className="divide-y divide-zinc-100">
-              {orders.map((order) => {
-                const cover =
-                  order.product?.product_images?.[0]?.image_url;
+            <h2 className="mt-4 font-black">
+              {tab === "buying"
+                ? "Todavía no tienes compras"
+                : "Todavía no tienes ventas"}
+            </h2>
 
-                return (
-                  <article
-                    key={order.id}
-                    className="px-4 py-5"
-                  >
-                    <div className="flex gap-4">
-                      <Link
-                        href={`/product/${order.product_id}`}
-                        className="h-28 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100"
-                      >
-                        {cover ? (
-                          <img
-                            src={cover}
-                            alt={order.product?.title || "Producto"}
-                            className="h-full w-full object-cover"
+            <p className="mt-2 text-sm text-zinc-400">
+              {tab === "buying"
+                ? "Tus compras aparecerán aquí."
+                : "Los artículos que vendas aparecerán aquí."}
+            </p>
+
+            {tab === "buying" && (
+              <Link
+                href="/"
+                className="mt-5 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
+              >
+                Explorar productos
+              </Link>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3 p-4">
+            {visibleOrders.map((order) => {
+              const otherPerson =
+                tab === "buying"
+                  ? order.seller
+                  : order.buyer;
+
+              const otherPersonName =
+                otherPerson?.display_name ||
+                otherPerson?.username ||
+                (tab === "buying"
+                  ? "Vendedor"
+                  : "Comprador");
+
+              return (
+                <article
+                  key={order.id}
+                  className="overflow-hidden rounded-2xl bg-white"
+                >
+                  {/* PRODUCT */}
+
+                  <div className="flex gap-4 p-4">
+                    <div className="h-24 w-20 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
+                      {order.product?.image ? (
+                        <img
+                          src={order.product.image}
+                          alt={
+                            order.product.title ||
+                            "Producto"
+                          }
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center">
+                          <Box
+                            size={21}
+                            className="text-zinc-300"
                           />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">
-                            Sin foto
-                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <StatusBadge
+                        status={order.status}
+                      />
+
+                      <h2 className="mt-2 truncate font-bold">
+                        {order.product?.title ||
+                          "Producto"}
+                      </h2>
+
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {tab === "buying"
+                          ? "Vendedor"
+                          : "Comprador"}
+                        : {otherPersonName}
+                      </p>
+
+                      <p className="mt-2 text-lg font-black">
+                        $
+                        {Number(order.amount).toFixed(
+                          2
                         )}
-                      </Link>
+                      </p>
+                    </div>
+                  </div>
 
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-zinc-400">
-                          {activeTab === "buying"
-                            ? "Vendedor"
-                            : "Comprador"}
-                        </p>
+                  {/* DELIVERY */}
 
-                        <p className="mt-1 text-sm font-bold">
-                          @{order.otherUser?.username || "usuario"}
-                        </p>
+                  {order.fulfillment_method && (
+                    <div className="border-t border-zinc-100 px-4 py-3">
+                      <div className="flex items-center gap-2 text-xs text-zinc-500">
+                        {order.fulfillment_method ===
+                        "pickup" ? (
+                          <MapPin size={15} />
+                        ) : (
+                          <Truck size={15} />
+                        )}
 
-                        <h2 className="mt-2 truncate text-sm font-semibold">
-                          {order.product?.title || "Producto"}
-                        </h2>
-
-                        <p className="mt-3 text-xl font-black">
-                          ${Number(order.amount).toFixed(2)}
-                        </p>
+                        <span>
+                          {fulfillmentLabel(
+                            order.fulfillment_method
+                          )}
+                        </span>
                       </div>
                     </div>
+                  )}
 
-                    <div className="mt-4">
-                      <OrderStatus status={order.status} />
-                    </div>
+                  {/* BUYER: PAYMENT NEEDED */}
 
-                    {activeTab === "buying" &&
-                      order.status === "pending_payment" && (
+                  {tab === "buying" &&
+                    order.status ===
+                      "pending_payment" && (
+                      <div className="border-t border-zinc-100 p-4">
                         <Link
                           href={`/checkout/${order.id}`}
-                          className="mt-4 block rounded-xl bg-black py-3 text-center text-sm font-bold text-white"
+                          className="flex w-full items-center justify-between rounded-xl bg-black px-4 py-3 text-sm font-bold text-white"
                         >
-                          Ir a pagar
+                          Completar pago
+
+                          <ChevronRight size={18} />
                         </Link>
-                      )}
-                  </article>
-                );
-              })}
-            </section>
-          )}
+                      </div>
+                    )}
+
+                  {/* BUYER: PAID WAITING FOR SELLER */}
+
+                  {tab === "buying" &&
+                    order.status === "paid" && (
+                      <div className="flex items-center gap-2 border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                        <Clock3
+                          size={16}
+                          className="text-zinc-500"
+                        />
+
+                        <p className="text-xs font-semibold text-zinc-500">
+                          El vendedor está preparando tu
+                          pedido.
+                        </p>
+                      </div>
+                    )}
+
+                  {/* BUYER: SHIPPED */}
+
+                  {tab === "buying" &&
+                    order.status === "shipped" && (
+                      <>
+                        <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <Truck
+                              size={16}
+                              className="text-zinc-500"
+                            />
+
+                            <p className="text-xs font-semibold text-zinc-500">
+                              El vendedor marcó este
+                              artículo como enviado.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-zinc-100 p-4">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              confirmReceived(
+                                order.id
+                              )
+                            }
+                            disabled={
+                              processingId === order.id
+                            }
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                          >
+                            <CheckCircle2 size={18} />
+
+                            {processingId === order.id
+                              ? "Confirmando..."
+                              : "Confirmar que recibí el artículo"}
+                          </button>
+
+                          <p className="mt-2 text-center text-[11px] text-zinc-400">
+                            Confirma solamente cuando
+                            tengas el artículo.
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                  {/* BUYER: READY FOR PICKUP */}
+
+                  {tab === "buying" &&
+                    order.status ===
+                      "ready_for_pickup" && (
+                      <>
+                        <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <PackageCheck
+                              size={16}
+                              className="text-zinc-500"
+                            />
+
+                            <p className="text-xs font-semibold text-zinc-500">
+                              Tu artículo está listo para
+                              retirar.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-zinc-100 p-4">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              confirmReceived(
+                                order.id
+                              )
+                            }
+                            disabled={
+                              processingId === order.id
+                            }
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                          >
+                            <CheckCircle2 size={18} />
+
+                            {processingId === order.id
+                              ? "Confirmando..."
+                              : "Confirmar que recibí el artículo"}
+                          </button>
+
+                          <p className="mt-2 text-center text-[11px] text-zinc-400">
+                            Confirma después de recibir
+                            personalmente el artículo.
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                  {/* COMPLETED */}
+
+                  {order.status === "completed" && (
+                    <div className="flex items-center gap-2 border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                      <CheckCircle2
+                        size={16}
+                        className="text-zinc-500"
+                      />
+
+                      <p className="text-xs font-semibold text-zinc-500">
+                        Pedido completado
+                      </p>
+                    </div>
+                  )}
+
+                  {/* SELLER LINK */}
+
+                  {tab === "selling" &&
+                    order.status !== "completed" &&
+                    order.status !==
+                      "pending_payment" && (
+                      <div className="border-t border-zinc-100 p-4">
+                        <Link
+                          href="/sales"
+                          className="flex w-full items-center justify-between rounded-xl bg-zinc-100 px-4 py-3 text-sm font-bold"
+                        >
+                          Administrar venta
+
+                          <ChevronRight size={18} />
+                        </Link>
+                      </div>
+                    )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
   );
 }
 
-function OrderStatus({
+function fulfillmentLabel(
+  method: string | null
+) {
+  switch (method) {
+    case "shipping":
+      return "Envío nacional";
+
+    case "local_delivery":
+      return "Entrega local";
+
+    case "pickup":
+      return "Retiro / encuentro";
+
+    default:
+      return "Método de entrega";
+  }
+}
+
+function StatusBadge({
   status,
 }: {
   status: string;
 }) {
-  const labels: Record<string, string> = {
-    pending_payment: "Pendiente de pago",
-    paid: "Pagado",
-    preparing: "Preparando",
-    shipped: "Enviado",
-    ready_for_pickup: "Listo para retirar",
-    completed: "Completado",
-    cancelled: "Cancelado",
-    refunded: "Reembolsado",
-  };
+  let label = status;
 
-  const icons: Record<string, React.ReactNode> = {
-    pending_payment: <Clock3 size={14} />,
-    paid: <CheckCircle2 size={14} />,
-    preparing: <Package size={14} />,
-    shipped: <Truck size={14} />,
-    ready_for_pickup: <Package size={14} />,
-    completed: <CheckCircle2 size={14} />,
-  };
+  if (status === "pending_payment") {
+    label = "Pendiente de pago";
+  }
+
+  if (status === "paid") {
+    label = "Pagado";
+  }
+
+  if (status === "shipped") {
+    label = "En camino";
+  }
+
+  if (status === "ready_for_pickup") {
+    label = "Listo para retirar";
+  }
+
+  if (status === "completed") {
+    label = "Completado";
+  }
+
+  if (status === "cancelled") {
+    label = "Cancelado";
+  }
+
+  if (status === "refunded") {
+    label = "Reembolsado";
+  }
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold">
-      {icons[status]}
-      {labels[status] || status}
+    <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide">
+      {label}
     </span>
   );
 }
