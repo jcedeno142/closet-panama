@@ -1,56 +1,650 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Check,
   Grid3X3,
   Heart,
   MapPin,
+  Pencil,
   ShieldCheck,
-  Star,
+  Wallet,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-const sellerProducts = [
-  {
-    id: 1,
-    name: "Vestido Satinado",
-    brand: "ZARA",
-    price: 24,
-    image:
-      "https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=900&q=80",
-  },
-  {
-    id: 5,
-    name: "Top Negro",
-    brand: "MANGO",
-    price: 18,
-    image:
-      "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?auto=format&fit=crop&w=900&q=80",
-  },
-  {
-    id: 6,
-    name: "Jeans Straight",
-    brand: "ZARA",
-    price: 28,
-    image:
-      "https://images.unsplash.com/photo-1542272604-787c3835535d?auto=format&fit=crop&w=900&q=80",
-  },
-  {
-    id: 7,
-    name: "Blazer Beige",
-    brand: "H&M",
-    price: 30,
-    image:
-      "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?auto=format&fit=crop&w=900&q=80",
-  },
-];
+type SellerProfile = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  city: string | null;
+  province: string | null;
+  verified: boolean;
+};
+
+type ProductImage = {
+  image_url: string;
+  position: number;
+};
+
+type Product = {
+  id: string;
+  seller_id: string;
+  title: string;
+  brand: string | null;
+  price: number;
+  status: string;
+  created_at: string;
+  product_images: ProductImage[];
+};
+
+type Tab = "closet" | "sold";
 
 export default function SellerPage() {
+  const params = useParams();
+  const supabase = useMemo(() => createClient(), []);
+
+  const username = decodeURIComponent(
+    String(params.username || "")
+  ).replace(/^@/, "");
+
+  const [seller, setSeller] =
+    useState<SellerProfile | null>(null);
+
+  const [products, setProducts] =
+    useState<Product[]>([]);
+
+  const [soldProductIds, setSoldProductIds] =
+    useState<string[]>([]);
+
+  const [followersCount, setFollowersCount] =
+    useState(0);
+
+  const [salesCount, setSalesCount] =
+    useState(0);
+
+  const [currentUserId, setCurrentUserId] =
+    useState<string | null>(null);
+
+  const [isFollowing, setIsFollowing] =
+    useState(false);
+
+  const [followLoading, setFollowLoading] =
+    useState(false);
+
+  const [messageLoading, setMessageLoading] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [tab, setTab] =
+    useState<Tab>("closet");
+
+  const [message, setMessage] =
+    useState("");
+
+  useEffect(() => {
+    async function loadSeller() {
+      setLoading(true);
+      setMessage("");
+
+      try {
+        /*
+         * CURRENT USER
+         */
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        const loggedInUserId =
+          user?.id || null;
+
+        setCurrentUserId(loggedInUserId);
+
+        /*
+         * PROFILE
+         */
+        const usernameWithAt =
+          `@${username}`;
+
+        const {
+          data: profileData,
+          error: profileError,
+        } = await supabase
+          .from("profiles")
+          .select(`
+            id,
+            username,
+            display_name,
+            avatar_url,
+            bio,
+            city,
+            province,
+            verified
+          `)
+          .or(
+            `username.eq.${username},username.eq.${usernameWithAt}`
+          )
+          .maybeSingle();
+
+        if (profileError) {
+          console.error(
+            "Seller profile error:",
+            profileError
+          );
+
+          setMessage(
+            "No pudimos cargar este closet."
+          );
+
+          setLoading(false);
+          return;
+        }
+
+        if (!profileData) {
+          setSeller(null);
+          setLoading(false);
+          return;
+        }
+
+        setSeller(profileData);
+
+        /*
+         * PRODUCTS
+         */
+        const {
+          data: productData,
+          error: productError,
+        } = await supabase
+          .from("products")
+          .select(`
+            id,
+            seller_id,
+            title,
+            brand,
+            price,
+            status,
+            created_at,
+            product_images (
+              image_url,
+              position
+            )
+          `)
+          .eq(
+            "seller_id",
+            profileData.id
+          )
+          .order("created_at", {
+            ascending: false,
+          });
+
+        if (productError) {
+          console.error(
+            "Seller products error:",
+            productError
+          );
+        } else {
+          const normalizedProducts: Product[] =
+            (productData || []).map(
+              (product) => ({
+                ...product,
+
+                price: Number(
+                  product.price
+                ),
+
+                product_images: [
+                  ...(
+                    product.product_images ||
+                    []
+                  ),
+                ].sort(
+                  (a, b) =>
+                    Number(a.position) -
+                    Number(b.position)
+                ),
+              })
+            );
+
+          setProducts(
+            normalizedProducts
+          );
+        }
+
+        /*
+         * FOLLOWER COUNT
+         */
+        const {
+          count: followerCount,
+          error: followersError,
+        } = await supabase
+          .from("follows")
+          .select("*", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "seller_id",
+            profileData.id
+          );
+
+        if (followersError) {
+          console.error(
+            "Followers error:",
+            followersError
+          );
+
+          setFollowersCount(0);
+        } else {
+          setFollowersCount(
+            followerCount || 0
+          );
+        }
+
+        /*
+         * DOES CURRENT USER FOLLOW
+         * THIS SELLER?
+         */
+        if (
+          loggedInUserId &&
+          loggedInUserId !==
+          profileData.id
+        ) {
+          const {
+            data: followData,
+            error: followError,
+          } = await supabase
+            .from("follows")
+            .select(`
+              follower_id,
+              seller_id
+            `)
+            .eq(
+              "follower_id",
+              loggedInUserId
+            )
+            .eq(
+              "seller_id",
+              profileData.id
+            )
+            .maybeSingle();
+
+          if (followError) {
+            console.error(
+              "Follow lookup error:",
+              followError
+            );
+
+            setIsFollowing(false);
+          } else {
+            setIsFollowing(
+              !!followData
+            );
+          }
+        } else {
+          setIsFollowing(false);
+        }
+
+        /*
+         * COMPLETED SALES
+         */
+        const {
+          data: completedOrders,
+          error: salesError,
+        } = await supabase
+          .from("orders")
+          .select(`
+            id,
+            product_id
+          `)
+          .eq(
+            "seller_id",
+            profileData.id
+          )
+          .eq(
+            "status",
+            "completed"
+          );
+
+        if (salesError) {
+          console.error(
+            "Completed sales error:",
+            salesError
+          );
+
+          setSalesCount(0);
+          setSoldProductIds([]);
+        } else {
+          const completed =
+            completedOrders || [];
+
+          setSalesCount(
+            completed.length
+          );
+
+          setSoldProductIds(
+            Array.from(
+              new Set(
+                completed
+                  .map(
+                    (order) =>
+                      order.product_id
+                  )
+                  .filter(Boolean)
+              )
+            )
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Seller page error:",
+          error
+        );
+
+        setMessage(
+          "Ocurrió un error al cargar este closet."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadSeller();
+  }, [username, supabase]);
+
+  /*
+   * FOLLOW / UNFOLLOW
+   */
+  async function toggleFollow() {
+    if (!seller) {
+      return;
+    }
+
+    if (!currentUserId) {
+      window.location.href = "/auth";
+      return;
+    }
+
+    if (
+      currentUserId === seller.id
+    ) {
+      return;
+    }
+
+    setFollowLoading(true);
+    setMessage("");
+
+    try {
+      if (isFollowing) {
+        /*
+         * UNFOLLOW
+         */
+        const { error } =
+          await supabase
+            .from("follows")
+            .delete()
+            .eq(
+              "follower_id",
+              currentUserId
+            )
+            .eq(
+              "seller_id",
+              seller.id
+            );
+
+        if (error) {
+          console.error(
+            "Unfollow error:",
+            error
+          );
+
+          setMessage(
+            "No pudimos dejar de seguir este closet."
+          );
+
+          return;
+        }
+
+        setIsFollowing(false);
+
+        setFollowersCount(
+          (current) =>
+            Math.max(
+              0,
+              current - 1
+            )
+        );
+      } else {
+        /*
+         * FOLLOW
+         */
+        const { error } =
+          await supabase
+            .from("follows")
+            .insert({
+              follower_id:
+                currentUserId,
+
+              seller_id:
+                seller.id,
+            });
+
+        if (error) {
+          console.error(
+            "Follow error:",
+            error
+          );
+
+          setMessage(
+            "No pudimos seguir este closet."
+          );
+
+          return;
+        }
+
+        setIsFollowing(true);
+
+        setFollowersCount(
+          (current) =>
+            current + 1
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Follow action error:",
+        error
+      );
+
+      setMessage(
+        "Ocurrió un error. Inténtalo nuevamente."
+      );
+    } finally {
+      setFollowLoading(false);
+    }
+  }
+
+  async function startConversation() {
+    if (!seller) {
+      return;
+    }
+
+    if (!currentUserId) {
+      window.location.href = "/auth";
+      return;
+    }
+
+    if (currentUserId === seller.id) {
+      return;
+    }
+
+    setMessageLoading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/conversations/start",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            otherUserId: seller.id,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          data.error ||
+          "No pudimos iniciar la conversación."
+        );
+
+        setMessageLoading(false);
+        return;
+      }
+
+      if (!data.conversationId) {
+        setMessage(
+          "No pudimos encontrar la conversación."
+        );
+
+        setMessageLoading(false);
+        return;
+      }
+
+      window.location.href =
+        `/inbox/${data.conversationId}`;
+    } catch (error) {
+      console.error(
+        "Start conversation error:",
+        error
+      );
+
+      setMessage(
+        "Ocurrió un error al iniciar la conversación."
+      );
+
+      setMessageLoading(false);
+    }
+  }
+
+  const isOwner =
+    !!currentUserId &&
+    !!seller &&
+    currentUserId === seller.id;
+
+  const displayName =
+    seller?.display_name ||
+    seller?.username?.replace(
+      /^@/,
+      ""
+    ) ||
+    "Closet";
+
+  const displayUsername =
+    seller?.username?.replace(
+      /^@/,
+      ""
+    ) ||
+    username;
+
+  const initial =
+    displayName
+      .charAt(0)
+      .toUpperCase() || "?";
+
+  /*
+   * ACTIVE PRODUCTS
+   */
+  const activeProducts =
+    products.filter(
+      (product) =>
+        product.status ===
+        "active" &&
+        !soldProductIds.includes(
+          product.id
+        )
+    );
+
+  /*
+   * SOLD PRODUCTS
+   */
+  const soldProducts =
+    products.filter((product) =>
+      soldProductIds.includes(
+        product.id
+      )
+    );
+
+  const visibleProducts =
+    tab === "closet"
+      ? activeProducts
+      : soldProducts;
+
+  const location = [
+    seller?.city,
+    seller?.province,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  /*
+   * LOADING
+   */
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-white text-black">
+        <p className="text-sm text-zinc-400">
+          Cargando closet...
+        </p>
+      </main>
+    );
+  }
+
+  /*
+   * NOT FOUND
+   */
+  if (!seller) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
+        <div className="text-center">
+          <h1 className="text-xl font-black">
+            Closet no encontrado
+          </h1>
+
+          <p className="mt-2 text-sm text-zinc-500">
+            Este usuario no existe o ya
+            no está disponible.
+          </p>
+
+          <Link
+            href="/"
+            className="mt-5 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
+          >
+            Volver al inicio
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-white pb-10 text-black">
       <div className="mx-auto max-w-md">
 
         {/* TOP BAR */}
+
         <div className="flex items-center justify-between px-4 py-4">
           <Link
             href="/"
@@ -59,117 +653,330 @@ export default function SellerPage() {
             <ArrowLeft size={20} />
           </Link>
 
-          <p className="font-bold">@ana'scloset</p>
+          <p className="max-w-[220px] truncate font-bold">
+            @{displayUsername}
+          </p>
 
           <div className="h-10 w-10" />
         </div>
 
         {/* PROFILE */}
+
         <section className="px-5 pt-4">
           <div className="flex items-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-black text-2xl font-bold text-white">
-              A
-            </div>
+
+            {/* AVATAR */}
+
+            {seller.avatar_url ? (
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-zinc-100">
+                <img
+                  src={
+                    seller.avatar_url
+                  }
+                  alt={displayName}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-black text-2xl font-bold text-white">
+                {initial}
+              </div>
+            )}
+
+            {/* STATS */}
 
             <div className="ml-5 flex flex-1 justify-around text-center">
               <div>
-                <p className="text-lg font-black">12</p>
-                <p className="text-xs text-zinc-500">Productos</p>
+                <p className="text-lg font-black">
+                  {
+                    activeProducts.length
+                  }
+                </p>
+
+                <p className="text-xs text-zinc-500">
+                  Productos
+                </p>
               </div>
 
               <div>
-                <p className="text-lg font-black">482</p>
-                <p className="text-xs text-zinc-500">Seguidores</p>
+                <p className="text-lg font-black">
+                  {followersCount}
+                </p>
+
+                <p className="text-xs text-zinc-500">
+                  Seguidores
+                </p>
               </div>
 
               <div>
-                <p className="text-lg font-black">27</p>
-                <p className="text-xs text-zinc-500">Ventas</p>
+                <p className="text-lg font-black">
+                  {salesCount}
+                </p>
+
+                <p className="text-xs text-zinc-500">
+                  Ventas
+                </p>
               </div>
             </div>
           </div>
+
+          {/* NAME */}
 
           <div className="mt-5">
             <div className="flex items-center gap-1">
-              <h1 className="text-xl font-bold">Ana's Closet</h1>
-              <ShieldCheck size={17} />
+              <h1 className="text-xl font-bold">
+                {displayName}
+              </h1>
+
+              {seller.verified && (
+                <ShieldCheck
+                  size={17}
+                />
+              )}
             </div>
 
-            <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-              <div className="flex items-center gap-1">
-                <Star size={13} fill="currentColor" />
-                <span>4.9</span>
-              </div>
+            {/* LOCATION */}
 
-              <span>·</span>
-
-              <div className="flex items-center gap-1">
+            {location && (
+              <div className="mt-2 flex items-center gap-1 text-xs text-zinc-500">
                 <MapPin size={13} />
-                Panamá
+
+                <span>
+                  {location}
+                </span>
               </div>
+            )}
+
+            {/* BIO */}
+
+            {seller.bio && (
+              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-600">
+                {seller.bio}
+              </p>
+            )}
+          </div>
+
+          {/* OWNER ACTIONS */}
+
+          {isOwner ? (
+            <div className="mt-5 flex gap-2">
+              <Link
+                href="/profile/edit"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-300 py-3 text-sm font-bold"
+              >
+                <Pencil size={16} />
+
+                Editar perfil
+              </Link>
+
+              <Link
+                href="/seller/wallet"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-black py-3 text-sm font-bold text-white"
+              >
+                <Wallet size={17} />
+
+                Mi billetera
+              </Link>
             </div>
+          ) : (
+            /*
+             * VISITOR ACTIONS
+             */
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={
+                  toggleFollow
+                }
+                disabled={
+                  followLoading
+                }
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition disabled:opacity-50 ${isFollowing
+                    ? "border border-zinc-300 bg-white text-black"
+                    : "bg-black text-white"
+                  }`}
+              >
+                {isFollowing && (
+                  <Check size={16} />
+                )}
 
-            <p className="mt-3 text-sm leading-6 text-zinc-600">
-              Ropa que ya no uso y algunas piezas nuevas. Envíos y entregas
-              disponibles en Panamá.
-            </p>
-          </div>
+                {followLoading
+                  ? "Procesando..."
+                  : isFollowing
+                    ? "Siguiendo"
+                    : "Seguir"}
+              </button>
 
-          {/* ACTIONS */}
-          <div className="mt-5 flex gap-2">
-            <button className="flex-1 rounded-xl bg-black py-3 text-sm font-bold text-white">
-              Seguir
-            </button>
+              <button
+                type="button"
+                onClick={startConversation}
+                disabled={messageLoading}
+                className="flex flex-1 items-center justify-center rounded-xl border border-zinc-300 py-3 text-sm font-bold transition disabled:opacity-50"
+              >
+                {messageLoading
+                  ? "Abriendo..."
+                  : "Mensaje"}
+              </button>
+            </div>
+          )}
 
-            <button className="flex-1 rounded-xl border border-zinc-300 py-3 text-sm font-bold">
-              Mensaje
-            </button>
-          </div>
+          {/* ERROR MESSAGE */}
+
+          {message && (
+            <div className="mt-4 rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
+              {message}
+            </div>
+          )}
         </section>
 
         {/* TABS */}
+
         <div className="mt-7 flex border-b border-zinc-200">
-          <button className="flex flex-1 items-center justify-center gap-2 border-b-2 border-black py-3 text-sm font-bold">
+          <button
+            type="button"
+            onClick={() =>
+              setTab("closet")
+            }
+            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm ${tab === "closet"
+                ? "border-black font-bold text-black"
+                : "border-transparent text-zinc-400"
+              }`}
+          >
             <Grid3X3 size={16} />
+
             Closet
           </button>
 
-          <button className="flex flex-1 items-center justify-center gap-2 py-3 text-sm text-zinc-400">
+          <button
+            type="button"
+            onClick={() =>
+              setTab("sold")
+            }
+            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm ${tab === "sold"
+                ? "border-black font-bold text-black"
+                : "border-transparent text-zinc-400"
+              }`}
+          >
             <Heart size={16} />
+
             Vendidos
           </button>
         </div>
 
-        {/* PRODUCTS */}
-        <section className="grid grid-cols-2 gap-x-1 gap-y-5 pt-1">
-          {sellerProducts.map((product) => (
-            <Link key={product.id} href={`/product/${product.id}`}>
-              <article>
-                <div className="aspect-[3/4] overflow-hidden bg-zinc-100">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
+        {/* EMPTY STATE */}
 
-                <div className="px-3 pt-3">
-                  <p className="text-[10px] font-bold tracking-[0.15em] text-zinc-400">
-                    {product.brand}
-                  </p>
+        {visibleProducts.length ===
+          0 ? (
+          <section className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+              {tab ===
+                "closet" ? (
+                <Grid3X3
+                  size={22}
+                  className="text-zinc-400"
+                />
+              ) : (
+                <Heart
+                  size={22}
+                  className="text-zinc-400"
+                />
+              )}
+            </div>
 
-                  <h2 className="mt-1 truncate text-sm font-semibold">
-                    {product.name}
-                  </h2>
+            <p className="mt-4 text-sm font-bold">
+              {tab === "closet"
+                ? "Este closet está vacío"
+                : "Todavía no hay artículos vendidos"}
+            </p>
 
-                  <p className="mt-2 text-lg font-black">
-                    ${product.price}
-                  </p>
-                </div>
-              </article>
-            </Link>
-          ))}
-        </section>
+            <p className="mt-1 text-xs text-zinc-400">
+              {tab === "closet"
+                ? isOwner
+                  ? "Publica tu primer artículo para comenzar."
+                  : "Este vendedor no tiene artículos disponibles."
+                : "Los artículos vendidos aparecerán aquí."}
+            </p>
+
+            {tab === "closet" &&
+              isOwner && (
+                <Link
+                  href="/sell"
+                  className="mt-5 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
+                >
+                  Vender un artículo
+                </Link>
+              )}
+          </section>
+        ) : (
+          /*
+           * PRODUCTS
+           */
+          <section className="grid grid-cols-2 gap-x-1 gap-y-5 pt-1">
+            {visibleProducts.map(
+              (product) => {
+                const cover =
+                  product
+                    .product_images?.[0]
+                    ?.image_url ||
+                  null;
+
+                const isSold =
+                  soldProductIds.includes(
+                    product.id
+                  );
+
+                return (
+                  <Link
+                    key={product.id}
+                    href={`/product/${product.id}`}
+                  >
+                    <article>
+                      <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
+                        {cover ? (
+                          <img
+                            src={cover}
+                            alt={
+                              product.title
+                            }
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                            Sin foto
+                          </div>
+                        )}
+
+                        {isSold && (
+                          <div className="absolute inset-x-0 bottom-0 bg-black/75 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-white">
+                            Vendido
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="px-3 pt-3">
+                        <p className="truncate text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">
+                          {product.brand ||
+                            "Sin marca"}
+                        </p>
+
+                        <h2 className="mt-1 truncate text-sm font-semibold">
+                          {product.title}
+                        </h2>
+
+                        <p className="mt-2 text-lg font-black">
+                          $
+                          {Number(
+                            product.price
+                          ).toFixed(2)}
+                        </p>
+                      </div>
+                    </article>
+                  </Link>
+                );
+              }
+            )}
+          </section>
+        )}
       </div>
     </main>
   );
