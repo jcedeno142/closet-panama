@@ -51,6 +51,7 @@ export default function ProductPage() {
   const [seller, setSeller] = useState<Seller | null>(null);
   const [images, setImages] = useState<ProductImage[]>([]);
   const [activeImage, setActiveImage] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -64,13 +65,17 @@ export default function ProductPage() {
     async function loadProduct() {
       setLoading(true);
       setError("");
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      const { data: productData, error: productError } =
-        await supabase
-          .from("products")
-          .select("*")
-          .eq("id", productId)
-          .maybeSingle();
+      setCurrentUserId(user?.id || "");
+
+      const { data: productData, error: productError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("id", productId)
+        .maybeSingle();
 
       if (productError) {
         setError(productError.message);
@@ -86,12 +91,11 @@ export default function ProductPage() {
 
       setProduct(productData);
 
-      const { data: sellerData, error: sellerError } =
-        await supabase
-          .from("profiles")
-          .select("username, display_name, verified")
-          .eq("id", productData.seller_id)
-          .maybeSingle();
+      const { data: sellerData, error: sellerError } = await supabase
+        .from("profiles")
+        .select("username, display_name, verified")
+        .eq("id", productData.seller_id)
+        .maybeSingle();
 
       if (sellerError) {
         setError(sellerError.message);
@@ -101,12 +105,11 @@ export default function ProductPage() {
 
       setSeller(sellerData);
 
-      const { data: imageData, error: imageError } =
-        await supabase
-          .from("product_images")
-          .select("id, image_url, position")
-          .eq("product_id", productId)
-          .order("position", { ascending: true });
+      const { data: imageData, error: imageError } = await supabase
+        .from("product_images")
+        .select("id, image_url, position")
+        .eq("product_id", productId)
+        .order("position", { ascending: true });
 
       if (imageError) {
         setError(imageError.message);
@@ -158,7 +161,7 @@ export default function ProductPage() {
 
     if (amount >= Number(product.price)) {
       setOfferMessage(
-        "Tu oferta debe ser menor que el precio publicado. Puedes comprarlo directamente por el precio completo."
+        "Tu oferta debe ser menor que el precio publicado. Puedes comprarlo directamente por el precio completo.",
       );
       return;
     }
@@ -175,15 +178,13 @@ export default function ProductPage() {
     setSubmittingOffer(true);
     setOfferMessage("");
 
-    const { error } = await supabase
-      .from("offers")
-      .insert({
-        product_id: product.id,
-        buyer_id: user.id,
-        seller_id: product.seller_id,
-        amount,
-        status: "pending",
-      });
+    const { error } = await supabase.from("offers").insert({
+      product_id: product.id,
+      buyer_id: user.id,
+      seller_id: product.seller_id,
+      amount,
+      status: "pending",
+    });
 
     if (error) {
       setOfferMessage(error.message);
@@ -204,9 +205,7 @@ export default function ProductPage() {
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
-        <p className="text-sm text-zinc-500">
-          Cargando artículo...
-        </p>
+        <p className="text-sm text-zinc-500">Cargando artículo...</p>
       </main>
     );
   }
@@ -215,13 +214,9 @@ export default function ProductPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
         <div className="text-center">
-          <p className="font-bold">
-            No pudimos cargar el artículo.
-          </p>
+          <p className="font-bold">No pudimos cargar el artículo.</p>
 
-          <p className="mt-2 text-sm text-zinc-500">
-            {error}
-          </p>
+          <p className="mt-2 text-sm text-zinc-500">{error}</p>
 
           <Link
             href="/"
@@ -234,6 +229,8 @@ export default function ProductPage() {
     );
   }
 
+  const isOwner = !!currentUserId && currentUserId === product.seller_id;
+
   const conditionLabels: Record<string, string> = {
     new: "Nuevo",
     like_new: "Como nuevo",
@@ -241,20 +238,13 @@ export default function ProductPage() {
     fair: "Estado aceptable",
   };
 
-  const location = [
-    product.city,
-    product.province,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const location = [product.city, product.province].filter(Boolean).join(", ");
 
-  const currentImage =
-    images[activeImage]?.image_url;
+  const currentImage = images[activeImage]?.image_url;
 
   return (
     <main className="min-h-screen bg-white pb-28 text-black">
       <div className="mx-auto max-w-md">
-
         {/* IMAGE AREA */}
         <section>
           <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
@@ -327,36 +317,21 @@ export default function ProductPage() {
             </p>
           )}
 
-          <h1 className="mt-2 text-2xl font-bold">
-            {product.title}
-          </h1>
+          <h1 className="mt-2 text-2xl font-bold">{product.title}</h1>
 
           <p className="mt-3 text-3xl font-black">
             ${Number(product.price).toFixed(2)}
           </p>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            {product.size && (
-              <InfoPill
-                label="Talla"
-                value={product.size}
-              />
-            )}
+            {product.size && <InfoPill label="Talla" value={product.size} />}
 
             <InfoPill
               label="Condición"
-              value={
-                conditionLabels[product.condition] ||
-                product.condition
-              }
+              value={conditionLabels[product.condition] || product.condition}
             />
 
-            {product.color && (
-              <InfoPill
-                label="Color"
-                value={product.color}
-              />
-            )}
+            {product.color && <InfoPill label="Color" value={product.color} />}
           </div>
 
           {location && (
@@ -371,9 +346,7 @@ export default function ProductPage() {
 
         {/* DESCRIPTION */}
         <section className="px-5 py-6">
-          <h2 className="font-bold">
-            Descripción
-          </h2>
+          <h2 className="font-bold">Descripción</h2>
 
           <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-600">
             {product.description || "Sin descripción."}
@@ -385,9 +358,7 @@ export default function ProductPage() {
         {/* SELLER */}
         {seller && (
           <section className="px-5 py-6">
-            <h2 className="mb-4 font-bold">
-              Vendido por
-            </h2>
+            <h2 className="mb-4 font-bold">Vendido por</h2>
 
             <Link
               href={`/seller/${seller.username}`}
@@ -401,13 +372,9 @@ export default function ProductPage() {
 
               <div className="ml-3 flex-1">
                 <div className="flex items-center gap-1">
-                  <p className="font-bold">
-                    @{seller.username}
-                  </p>
+                  <p className="font-bold">@{seller.username}</p>
 
-                  {seller.verified && (
-                    <ShieldCheck size={15} />
-                  )}
+                  {seller.verified && <ShieldCheck size={15} />}
                 </div>
 
                 <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
@@ -416,9 +383,7 @@ export default function ProductPage() {
                 </div>
               </div>
 
-              <span className="text-sm font-semibold">
-                Ver closet →
-              </span>
+              <span className="text-sm font-semibold">Ver closet →</span>
             </Link>
           </section>
         )}
@@ -431,9 +396,7 @@ export default function ProductPage() {
             <ShieldCheck size={22} />
 
             <div>
-              <h3 className="text-sm font-bold">
-                Compra protegida
-              </h3>
+              <h3 className="text-sm font-bold">Compra protegida</h3>
 
               <p className="mt-1 text-xs leading-5 text-zinc-500">
                 Tu pago permanecerá protegido hasta que recibas tu compra.
@@ -443,23 +406,34 @@ export default function ProductPage() {
         </section>
       </div>
 
-      {/* BUY BAR */}
+      {/* BOTTOM ACTION BAR */}
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white p-3">
         <div className="mx-auto flex max-w-md gap-2">
-          <button
-            type="button"
-            onClick={openOfferModal}
-            className="flex-1 rounded-2xl border border-black px-4 py-4 text-sm font-bold"
-          >
-            Hacer oferta
-          </button>
+          {isOwner ? (
+            <Link
+              href={`/product/${product.id}/edit`}
+              className="flex-1 rounded-2xl bg-black px-4 py-4 text-center text-sm font-bold text-white"
+            >
+              Editar publicación
+            </Link>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={openOfferModal}
+                className="flex-1 rounded-2xl border border-black px-4 py-4 text-sm font-bold"
+              >
+                Hacer oferta
+              </button>
 
-          <button
-            type="button"
-            className="flex-1 rounded-2xl bg-black px-4 py-4 text-sm font-bold text-white"
-          >
-            Comprar · ${Number(product.price).toFixed(2)}
-          </button>
+              <Link
+                href={`/checkout/${product.id}`}
+                className="flex flex-1 items-center justify-center rounded-2xl bg-black px-4 py-4 text-center text-sm font-bold text-white"
+              >
+                Comprar · ${Number(product.price).toFixed(2)}
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -467,12 +441,9 @@ export default function ProductPage() {
       {showOfferModal && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 sm:items-center">
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl">
-
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold">
-                  Hacer oferta
-                </h2>
+                <h2 className="text-xl font-bold">Hacer oferta</h2>
 
                 <p className="mt-1 text-sm text-zinc-500">
                   Precio publicado: ${Number(product.price).toFixed(2)}
@@ -491,27 +462,18 @@ export default function ProductPage() {
               </button>
             </div>
 
-            <form
-              onSubmit={submitOffer}
-              className="mt-6"
-            >
-              <label className="text-sm font-bold">
-                Tu oferta
-              </label>
+            <form onSubmit={submitOffer} className="mt-6">
+              <label className="text-sm font-bold">Tu oferta</label>
 
               <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 px-4">
-                <span className="text-lg font-bold">
-                  $
-                </span>
+                <span className="text-lg font-bold">$</span>
 
                 <input
                   type="number"
                   min="0.01"
                   step="0.01"
                   value={offerAmount}
-                  onChange={(e) =>
-                    setOfferAmount(e.target.value)
-                  }
+                  onChange={(e) => setOfferAmount(e.target.value)}
                   placeholder="0.00"
                   className="w-full px-3 py-4 text-xl font-bold outline-none"
                 />
@@ -532,9 +494,7 @@ export default function ProductPage() {
                 disabled={submittingOffer}
                 className="mt-5 w-full rounded-2xl bg-black py-4 text-sm font-bold text-white disabled:opacity-50"
               >
-                {submittingOffer
-                  ? "Enviando..."
-                  : "Enviar oferta"}
+                {submittingOffer ? "Enviando..." : "Enviar oferta"}
               </button>
             </form>
           </div>
@@ -544,22 +504,14 @@ export default function ProductPage() {
   );
 }
 
-function InfoPill({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function InfoPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-zinc-100 px-3 py-2">
       <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
         {label}
       </p>
 
-      <p className="mt-0.5 text-xs font-bold">
-        {value}
-      </p>
+      <p className="mt-0.5 text-xs font-bold">{value}</p>
     </div>
   );
 }
