@@ -52,6 +52,8 @@ export default function ProductPage() {
   const [images, setImages] = useState<ProductImage[]>([]);
   const [activeImage, setActiveImage] = useState(0);
   const [currentUserId, setCurrentUserId] = useState("");
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -89,6 +91,17 @@ export default function ProductPage() {
         return;
       }
 
+      if (user) {
+        const { data: favoriteData } = await supabase
+          .from("favorites")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("product_id", productId)
+          .maybeSingle();
+
+        setIsFavorite(!!favoriteData);
+      }
+
       setProduct(productData);
 
       const { data: sellerData, error: sellerError } = await supabase
@@ -124,6 +137,52 @@ export default function ProductPage() {
 
     loadProduct();
   }, [productId, supabase]);
+
+  async function toggleFavorite() {
+    if (favoriteLoading) return;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      window.location.href = "/auth";
+      return;
+    }
+
+    setFavoriteLoading(true);
+
+    if (isFavorite) {
+      const { error } = await supabase
+        .from("favorites")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("product_id", productId);
+
+      if (error) {
+        console.error("Remove favorite error:", error);
+        setFavoriteLoading(false);
+        return;
+      }
+
+      setIsFavorite(false);
+    } else {
+      const { error } = await supabase.from("favorites").insert({
+        user_id: user.id,
+        product_id: productId,
+      });
+
+      if (error) {
+        console.error("Add favorite error:", error);
+        setFavoriteLoading(false);
+        return;
+      }
+
+      setIsFavorite(true);
+    }
+
+    setFavoriteLoading(false);
+  }
 
   async function openOfferModal() {
     const {
@@ -269,8 +328,21 @@ export default function ProductPage() {
               </Link>
 
               <div className="flex gap-2">
-                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur">
-                  <Heart size={20} />
+                <button
+                  type="button"
+                  onClick={toggleFavorite}
+                  disabled={favoriteLoading}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur transition active:scale-90 disabled:opacity-50"
+                  aria-label={
+                    isFavorite ? "Quitar de favoritos" : "Guardar en favoritos"
+                  }
+                >
+                  <Heart
+                    size={20}
+                    className={
+                      isFavorite ? "fill-red-500 text-red-500" : "text-black"
+                    }
+                  />
                 </button>
 
                 <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur">
