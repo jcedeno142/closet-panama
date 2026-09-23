@@ -58,21 +58,30 @@ export default function ProductPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportMessage, setReportMessage] = useState("");
+  const [submittingReport, setSubmittingReport] = useState(false);
+
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [offerAmount, setOfferAmount] = useState("");
   const [offerMessage, setOfferMessage] = useState("");
   const [submittingOffer, setSubmittingOffer] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [shareMessage, setShareMessage] = useState("");
 
   useEffect(() => {
     async function loadProduct() {
       setLoading(true);
       setError("");
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const user = session?.user ?? null;
 
       setCurrentUserId(user?.id || "");
-
       const { data: productData, error: productError } = await supabase
         .from("products")
         .select("*")
@@ -91,18 +100,27 @@ export default function ProductPage() {
         return;
       }
 
+      setProduct(productData);
+
+      /*
+       * LOAD FAVORITE STATUS
+       */
       if (user) {
-        const { data: favoriteData } = await supabase
+        const { data: favoriteData, error: favoriteError } = await supabase
           .from("favorites")
-          .select("id")
+          .select("user_id, product_id")
           .eq("user_id", user.id)
           .eq("product_id", productId)
           .maybeSingle();
 
-        setIsFavorite(!!favoriteData);
-      }
+        if (favoriteError) {
+          console.error("Load favorite error:", favoriteError);
+        }
 
-      setProduct(productData);
+        setIsFavorite(!!favoriteData);
+      } else {
+        setIsFavorite(false);
+      }
 
       const { data: sellerData, error: sellerError } = await supabase
         .from("profiles")
@@ -152,36 +170,165 @@ export default function ProductPage() {
 
     setFavoriteLoading(true);
 
-    if (isFavorite) {
-      const { error } = await supabase
+    try {
+      /*
+       * Check the database directly instead of relying only
+       * on the local isFavorite state.
+       */
+      const { data: existingFavorite, error: checkError } = await supabase
         .from("favorites")
-        .delete()
+        .select("user_id, product_id")
         .eq("user_id", user.id)
-        .eq("product_id", productId);
+        .eq("product_id", productId)
+        .maybeSingle();
 
-      if (error) {
-        console.error("Remove favorite error:", error);
-        setFavoriteLoading(false);
+      if (checkError) {
+        console.error("Check favorite error:", checkError);
         return;
       }
 
-      setIsFavorite(false);
-    } else {
-      const { error } = await supabase.from("favorites").insert({
+      /*
+       * Already favorited -> remove it
+       */
+      if (existingFavorite) {
+        const { error: deleteError } = await supabase
+          .from("favorites")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("product_id", productId);
+
+        if (deleteError) {
+          console.error("Remove favorite error:", deleteError);
+          return;
+        }
+
+        setIsFavorite(false);
+        return;
+      }
+
+      /*
+       * Not favorited -> add it
+       */
+      const { error: insertError } = await supabase.from("favorites").insert({
         user_id: user.id,
         product_id: productId,
       });
 
-      if (error) {
-        console.error("Add favorite error:", error);
-        setFavoriteLoading(false);
+      if (insertError) {
+        console.error("Add favorite error:", insertError);
         return;
       }
 
       setIsFavorite(true);
+    } finally {
+      setFavoriteLoading(false);
+    }
+  }
+
+  async function submitReport(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (!product) return;
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const user = session?.user;
+
+    if (!user) {
+      window.location.href = "/auth";
+      return;
     }
 
-    setFavoriteLoading(false);
+    if (user.id === product.seller_id) {
+      setReportMessage("No puedes reportar tu propia publicación.");
+      return;
+    }
+
+    if (!reportReason) {
+      setReportMessage("Selecciona un motivo.");
+      return;
+    }
+
+    setSubmittingReport(true);
+    setReportMessage("");
+
+    const { error } = await supabase.from("reports").insert({
+      reporter_id: user.id,
+      product_id: product.id,
+      seller_id: product.seller_id,
+      reason: reportReason,
+      details: reportDetails.trim() || null,
+    });
+
+    if (error) {
+      console.error("Submit report error:", error);
+
+      if (error.code === "23505") {
+        setReportMessage(
+          "Ya reportaste esta publicación. Nuestro equipo revisará tu reporte.",
+        );
+      } else {
+        setReportMessage("No pudimos enviar el reporte. Inténtalo nuevamente.");
+      }
+
+      setSubmittingReport(false);
+      return;
+    }
+
+    setReportMessage(
+      "Reporte enviado. Gracias por ayudarnos a mantener segura la comunidad.",
+    );
+
+    setSubmittingReport(false);
+
+    setTimeout(() => {
+      setShowReportModal(false);
+      setReportReason("");
+      setReportDetails("");
+      setReportMessage("");
+    }, 1500);
+  }
+
+  async function shareProduct() {
+    if (!product) return;
+
+    const url = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: product.title,
+          text: `Mira ${product.title} en Closet Panamá`,
+          url,
+        });
+
+        setShowMoreMenu(false);
+        return;
+      }
+
+      await navigator.clipboard.writeText(url);
+
+      setShareMessage("Enlace copiado.");
+    } catch (error) {
+      /*
+       * Ignore AbortError because it simply means
+       * the user closed the native share window.
+       */
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
+      console.error("Share error:", error);
+
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareMessage("Enlace copiado.");
+      } catch {
+        setShareMessage("No pudimos copiar el enlace.");
+      }
+    }
   }
 
   async function openOfferModal() {
@@ -345,7 +492,15 @@ export default function ProductPage() {
                   />
                 </button>
 
-                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShareMessage("");
+                    setShowMoreMenu(true);
+                  }}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur transition active:scale-90"
+                  aria-label="Más opciones"
+                >
                   <MoreHorizontal size={20} />
                 </button>
               </div>
@@ -509,6 +664,205 @@ export default function ProductPage() {
         </div>
       </div>
 
+      {/* MORE OPTIONS MENU */}
+      {showMoreMenu && (
+        <div
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40"
+          onClick={() => setShowMoreMenu(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white px-5 pb-8 pt-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* HANDLE */}
+            <div className="mx-auto mb-5 h-1.5 w-10 rounded-full bg-zinc-300" />
+
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold">Opciones</h2>
+
+              <button
+                type="button"
+                onClick={() => setShowMoreMenu(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              {/* OWNER */}
+              {isOwner && (
+                <Link
+                  href={`/product/${product.id}/edit`}
+                  className="flex w-full items-center rounded-2xl bg-zinc-100 px-4 py-4 text-sm font-bold"
+                >
+                  Editar publicación
+                </Link>
+              )}
+
+              {/* SHARE */}
+              <button
+                type="button"
+                onClick={shareProduct}
+                className="flex w-full items-center rounded-2xl bg-zinc-100 px-4 py-4 text-left text-sm font-bold"
+              >
+                Compartir publicación
+              </button>
+
+              {/* REPORT — ONLY OTHER SELLERS */}
+              {!isOwner && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const {
+                      data: { session },
+                    } = await supabase.auth.getSession();
+
+                    if (!session?.user) {
+                      window.location.href = "/auth";
+                      return;
+                    }
+
+                    setShowMoreMenu(false);
+                    setReportReason("");
+                    setReportDetails("");
+                    setReportMessage("");
+                    setShowReportModal(true);
+                  }}
+                  className="flex w-full items-center rounded-2xl bg-zinc-100 px-4 py-4 text-left text-sm font-bold text-red-600"
+                >
+                  Reportar publicación
+                </button>
+              )}
+            </div>
+
+            {shareMessage && (
+              <div className="mt-4 rounded-xl bg-zinc-100 p-3 text-center text-sm font-medium">
+                {shareMessage}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowMoreMenu(false)}
+              className="mt-5 w-full rounded-2xl border border-zinc-200 py-4 text-sm font-bold"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* REPORT MODAL */}
+      {showReportModal && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 sm:items-center"
+          onClick={() => {
+            if (!submittingReport) {
+              setShowReportModal(false);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-5 h-1.5 w-10 rounded-full bg-zinc-300 sm:hidden" />
+
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold">Reportar publicación</h2>
+
+                <p className="mt-1 text-sm text-zinc-500">
+                  Cuéntanos qué sucede con este artículo.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={submittingReport}
+                onClick={() => setShowReportModal(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={submitReport} className="mt-6">
+              <div className="space-y-2">
+                <ReportOption
+                  value="counterfeit"
+                  label="Artículo falso o imitación"
+                  selected={reportReason}
+                  onChange={setReportReason}
+                />
+
+                <ReportOption
+                  value="scam"
+                  label="Posible estafa"
+                  selected={reportReason}
+                  onChange={setReportReason}
+                />
+
+                <ReportOption
+                  value="prohibited"
+                  label="Artículo prohibido"
+                  selected={reportReason}
+                  onChange={setReportReason}
+                />
+
+                <ReportOption
+                  value="inappropriate"
+                  label="Contenido inapropiado"
+                  selected={reportReason}
+                  onChange={setReportReason}
+                />
+
+                <ReportOption
+                  value="other"
+                  label="Otro"
+                  selected={reportReason}
+                  onChange={setReportReason}
+                />
+              </div>
+
+              <div className="mt-5">
+                <label className="text-sm font-bold">
+                  Detalles adicionales
+                </label>
+
+                <textarea
+                  value={reportDetails}
+                  onChange={(e) => setReportDetails(e.target.value)}
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="Agrega información que nos ayude a revisar el reporte..."
+                  className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 p-4 text-sm outline-none focus:border-black"
+                />
+
+                <p className="mt-1 text-right text-xs text-zinc-400">
+                  {reportDetails.length}/1000
+                </p>
+              </div>
+
+              {reportMessage && (
+                <div className="mt-4 rounded-xl bg-zinc-100 p-4 text-sm">
+                  {reportMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submittingReport || !reportReason}
+                className="mt-5 w-full rounded-2xl bg-black py-4 text-sm font-bold text-white disabled:opacity-40"
+              >
+                {submittingReport ? "Enviando..." : "Enviar reporte"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* OFFER MODAL */}
       {showOfferModal && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 sm:items-center">
@@ -585,5 +939,39 @@ function InfoPill({ label, value }: { label: string; value: string }) {
 
       <p className="mt-0.5 text-xs font-bold">{value}</p>
     </div>
+  );
+}
+
+function ReportOption({
+  value,
+  label,
+  selected,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  selected: string;
+  onChange: (value: string) => void;
+}) {
+  const active = selected === value;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(value)}
+      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-4 text-left text-sm font-semibold transition ${
+        active ? "border-black bg-zinc-50" : "border-zinc-200 bg-white"
+      }`}
+    >
+      <span>{label}</span>
+
+      <span
+        className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+          active ? "border-black" : "border-zinc-300"
+        }`}
+      >
+        {active && <span className="h-2.5 w-2.5 rounded-full bg-black" />}
+      </span>
+    </button>
   );
 }
