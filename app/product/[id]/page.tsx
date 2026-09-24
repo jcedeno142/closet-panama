@@ -71,6 +71,8 @@ export default function ProductPage() {
   const [submittingOffer, setSubmittingOffer] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
+  const [buying, setBuying] = useState(false);
+  const [buyMessage, setBuyMessage] = useState("");
 
   useEffect(() => {
     async function loadProduct() {
@@ -418,6 +420,115 @@ export default function ProductPage() {
     }, 900);
   }
 
+  async function buyNow() {
+    if (!product || buying) return;
+
+    if (product.status !== "active") {
+      setBuyMessage("Este artículo ya no está disponible.");
+      return;
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      window.location.href = "/auth";
+      return;
+    }
+
+    if (user.id === product.seller_id) {
+      setBuyMessage("No puedes comprar tu propia publicación.");
+      return;
+    }
+
+    setBuying(true);
+    setBuyMessage("");
+
+    try {
+      // Check whether this buyer already has a pending checkout
+      // for this exact product.
+      const { data: existingOrder, error: existingOrderError } = await supabase
+        .from("orders")
+        .select("id")
+        .eq("product_id", product.id)
+        .eq("buyer_id", user.id)
+        .eq("seller_id", product.seller_id)
+        .eq("status", "pending_payment")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingOrderError) {
+        console.error("Existing order lookup error:", existingOrderError);
+        setBuyMessage("No pudimos preparar la compra.");
+        return;
+      }
+
+      // Reuse an existing pending checkout instead of creating duplicates.
+      if (existingOrder) {
+        window.location.href = `/checkout/${existingOrder.id}`;
+        return;
+      }
+
+      // Re-check the product immediately before creating the order.
+      const { data: latestProduct, error: productCheckError } = await supabase
+        .from("products")
+        .select("id, seller_id, price, status")
+        .eq("id", product.id)
+        .maybeSingle();
+
+      if (productCheckError) {
+        console.error("Product availability check error:", productCheckError);
+        setBuyMessage("No pudimos verificar el artículo.");
+        return;
+      }
+
+      if (!latestProduct || latestProduct.status !== "active") {
+        setBuyMessage("Este artículo ya fue vendido o no está disponible.");
+        return;
+      }
+
+      if (latestProduct.seller_id !== product.seller_id) {
+        setBuyMessage("No pudimos verificar el vendedor.");
+        return;
+      }
+
+      const amount = Number(latestProduct.price);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setBuyMessage("El precio del artículo no es válido.");
+        return;
+      }
+
+      const { data: newOrder, error: orderError } = await supabase
+        .from("orders")
+        .insert({
+          product_id: latestProduct.id,
+          buyer_id: user.id,
+          seller_id: latestProduct.seller_id,
+          amount,
+          status: "pending_payment",
+        })
+        .select("id")
+        .single();
+
+      if (orderError) {
+        console.error("Create order error:", orderError);
+        setBuyMessage("No pudimos iniciar la compra.");
+        return;
+      }
+
+      window.location.href = `/checkout/${newOrder.id}`;
+    } catch (error) {
+      console.error("Buy now error:", error);
+      setBuyMessage("Ocurrió un error al iniciar la compra.");
+    } finally {
+      setBuying(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
@@ -650,6 +761,12 @@ export default function ProductPage() {
         </section>
       </div>
 
+      {buyMessage && (
+        <div className="fixed bottom-20 left-1/2 z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl bg-black px-4 py-3 text-center text-sm font-medium text-white shadow-lg">
+          {buyMessage}
+        </div>
+      )}
+
       {/* BOTTOM ACTION BAR */}
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white p-3">
         <div className="mx-auto flex max-w-md gap-2">
@@ -674,12 +791,16 @@ export default function ProductPage() {
                 Hacer oferta
               </button>
 
-              <Link
-                href={`/checkout/${product.id}`}
-                className="flex flex-1 items-center justify-center rounded-2xl bg-black px-4 py-4 text-center text-sm font-bold text-white"
+              <button
+                type="button"
+                onClick={buyNow}
+                disabled={buying}
+                className="flex flex-1 items-center justify-center rounded-2xl bg-black px-4 py-4 text-center text-sm font-bold text-white disabled:opacity-50"
               >
-                Comprar · ${Number(product.price).toFixed(2)}
-              </Link>
+                {buying
+                  ? "Preparando..."
+                  : `Comprar · $${Number(product.price).toFixed(2)}`}
+              </button>
             </>
           )}
         </div>
