@@ -13,30 +13,26 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.json(
-        { error: "No autorizado." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
     }
 
     const body = await request.json();
     const { orderId } = body;
 
     if (!orderId) {
-      return NextResponse.json(
-        { error: "Falta el pedido." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Falta el pedido." }, { status: 400 });
     }
 
     const { data: order, error: orderError } = await admin
       .from("orders")
-      .select(`
+      .select(
+        `
         id,
         buyer_id,
         seller_id,
         status
-      `)
+      `,
+      )
       .eq("id", orderId)
       .maybeSingle();
 
@@ -45,42 +41,41 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: "No pudimos verificar el pedido." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     if (!order) {
       return NextResponse.json(
         { error: "Pedido no encontrado." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     if (order.buyer_id !== user.id) {
       return NextResponse.json(
         { error: "No tienes permiso para confirmar este pedido." },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
-    if (
-      order.status !== "shipped" &&
-      order.status !== "ready_for_pickup"
-    ) {
+    if (order.status !== "shipped" && order.status !== "ready_for_pickup") {
       return NextResponse.json(
         { error: "Este pedido todavía no puede ser completado." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const { data: payment, error: paymentError } = await admin
       .from("payments")
-      .select(`
+      .select(
+        `
         id,
         seller_id,
         seller_amount,
         status
-      `)
+      `,
+      )
       .eq("order_id", order.id)
       .eq("status", "paid")
       .maybeSingle();
@@ -90,24 +85,26 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: "No pudimos verificar el pago." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     if (!payment) {
       return NextResponse.json(
         { error: "No encontramos un pago confirmado para este pedido." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const { data: balance, error: balanceError } = await admin
       .from("seller_balances")
-      .select(`
+      .select(
+        `
         seller_id,
         pending_balance,
         available_balance
-      `)
+      `,
+      )
       .eq("seller_id", order.seller_id)
       .maybeSingle();
 
@@ -116,14 +113,14 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: "No pudimos verificar el saldo del vendedor." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     if (!balance) {
       return NextResponse.json(
         { error: "No encontramos el saldo del vendedor." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -134,12 +131,11 @@ export async function POST(request: Request) {
     if (pendingBalance < sellerAmount) {
       return NextResponse.json(
         { error: "El saldo pendiente del vendedor no es suficiente." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const newPending =
-      Math.round((pendingBalance - sellerAmount) * 100) / 100;
+    const newPending = Math.round((pendingBalance - sellerAmount) * 100) / 100;
 
     const newAvailable =
       Math.round((availableBalance + sellerAmount) * 100) / 100;
@@ -160,29 +156,84 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: "No pudimos liberar el saldo del vendedor." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const { data: completedOrder, error: orderUpdateError } =
-      await admin
-        .from("orders")
-        .update({
-          status: "completed",
-          updated_at: now,
-        })
-        .eq("id", order.id)
-        .in("status", ["shipped", "ready_for_pickup"])
-        .select()
-        .single();
+    const { data: completedOrder, error: orderUpdateError } = await admin
+      .from("orders")
+      .update({
+        status: "completed",
+        updated_at: now,
+      })
+      .eq("id", order.id)
+      .in("status", ["shipped", "ready_for_pickup"])
+      .select()
+      .single();
 
     if (orderUpdateError) {
       console.error("Order completion error:", orderUpdateError);
 
       return NextResponse.json(
         { error: "No pudimos completar el pedido." },
-        { status: 500 }
+        { status: 500 },
       );
+    }
+
+    // Get product information for the completed-sale notification
+    const { data: orderDetails, error: detailsError } = await admin
+      .from("orders")
+      .select("product_id")
+      .eq("id", order.id)
+      .maybeSingle();
+
+    if (detailsError) {
+      console.error("Completed order notification lookup error:", detailsError);
+    }
+
+    let productTitle = "tu publicación";
+    let productId: string | null = null;
+
+    if (orderDetails?.product_id) {
+      productId = orderDetails.product_id;
+
+      const { data: product, error: productError } = await admin
+        .from("products")
+        .select("title")
+        .eq("id", productId)
+        .maybeSingle();
+
+      if (productError) {
+        console.error("Completed order product lookup error:", productError);
+      }
+
+      if (product?.title) {
+        productTitle = product.title;
+      }
+    }
+
+    // Notify seller that the transaction is complete
+    const { error: notificationError } = await admin
+      .from("notifications")
+      .insert({
+        user_id: order.seller_id,
+        actor_id: order.buyer_id,
+        type: "order_completed",
+        title: "Venta completada 🎉",
+        message: `El comprador confirmó que recibió ${productTitle}. $${sellerAmount.toFixed(
+          2,
+        )} ya está disponible en tu saldo.`,
+        link: "/seller/wallet",
+        product_id: productId,
+      });
+
+    if (notificationError) {
+      /*
+       * The order and balance were already updated successfully.
+       * A notification failure should not make the completed
+       * transaction appear to have failed.
+       */
+      console.error("Completed order notification error:", notificationError);
     }
 
     return NextResponse.json({
@@ -197,7 +248,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       { error: "Error interno del servidor." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

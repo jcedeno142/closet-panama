@@ -11,6 +11,7 @@ import {
   MapPin,
   Pencil,
   ShieldCheck,
+  Star,
   Wallet,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -42,51 +43,61 @@ type Product = {
   product_images: ProductImage[];
 };
 
-type Tab = "closet" | "sold";
+type Review = {
+  id: string;
+  reviewer_id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+
+  reviewer?: {
+    id: string;
+    username: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+  };
+};
+
+type Tab = "closet" | "sold" | "reviews";
 
 export default function SellerPage() {
   const params = useParams();
   const supabase = useMemo(() => createClient(), []);
 
-  const username = decodeURIComponent(
-    String(params.username || "")
-  ).replace(/^@/, "");
+  const username = decodeURIComponent(String(params.username || "")).replace(
+    /^@/,
+    "",
+  );
 
-  const [seller, setSeller] =
-    useState<SellerProfile | null>(null);
+  const [seller, setSeller] = useState<SellerProfile | null>(null);
 
-  const [products, setProducts] =
-    useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
 
-  const [soldProductIds, setSoldProductIds] =
-    useState<string[]>([]);
+  const [soldProductIds, setSoldProductIds] = useState<string[]>([]);
 
-  const [followersCount, setFollowersCount] =
-    useState(0);
+  const [followersCount, setFollowersCount] = useState(0);
 
-  const [salesCount, setSalesCount] =
-    useState(0);
+  const [salesCount, setSalesCount] = useState(0);
 
-  const [currentUserId, setCurrentUserId] =
-    useState<string | null>(null);
+  const [averageRating, setAverageRating] = useState<number | null>(null);
 
-  const [isFollowing, setIsFollowing] =
-    useState(false);
+  const [reviewCount, setReviewCount] = useState(0);
 
-  const [followLoading, setFollowLoading] =
-    useState(false);
+  const [reviews, setReviews] = useState<Review[]>([]);
 
-  const [messageLoading, setMessageLoading] =
-    useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
 
-  const [tab, setTab] =
-    useState<Tab>("closet");
+  const [followLoading, setFollowLoading] = useState(false);
 
-  const [message, setMessage] =
-    useState("");
+  const [messageLoading, setMessageLoading] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+
+  const [tab, setTab] = useState<Tab>("closet");
+
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function loadSeller() {
@@ -101,23 +112,19 @@ export default function SellerPage() {
           data: { user },
         } = await supabase.auth.getUser();
 
-        const loggedInUserId =
-          user?.id || null;
+        const loggedInUserId = user?.id || null;
 
         setCurrentUserId(loggedInUserId);
 
         /*
          * PROFILE
          */
-        const usernameWithAt =
-          `@${username}`;
+        const usernameWithAt = `@${username}`;
 
-        const {
-          data: profileData,
-          error: profileError,
-        } = await supabase
+        const { data: profileData, error: profileError } = await supabase
           .from("profiles")
-          .select(`
+          .select(
+            `
             id,
             username,
             display_name,
@@ -126,21 +133,15 @@ export default function SellerPage() {
             city,
             province,
             verified
-          `)
-          .or(
-            `username.eq.${username},username.eq.${usernameWithAt}`
+          `,
           )
+          .or(`username.eq.${username},username.eq.${usernameWithAt}`)
           .maybeSingle();
 
         if (profileError) {
-          console.error(
-            "Seller profile error:",
-            profileError
-          );
+          console.error("Seller profile error:", profileError);
 
-          setMessage(
-            "No pudimos cargar este closet."
-          );
+          setMessage("No pudimos cargar este closet.");
 
           setLoading(false);
           return;
@@ -154,15 +155,75 @@ export default function SellerPage() {
 
         setSeller(profileData);
 
+        /*SELLER REVIEWS*/
+        const { data: reviewData, error: reviewError } = await supabase
+          .from("reviews")
+          .select(
+            `id,
+            reviewer_id,
+            rating,
+            comment,
+            created_at`,
+          )
+          .eq("seller_id", profileData.id)
+          .order("created_at", {
+            ascending: false,
+          });
+
+        if (reviewError) {
+          console.error("Seller reviews error:", reviewError);
+
+          setReviews([]);
+          setAverageRating(null);
+          setReviewCount(0);
+        } else {
+          const baseReviews = reviewData || [];
+
+          const reviewsWithProfiles: Review[] = await Promise.all(
+            baseReviews.map(async (review) => {
+              const { data: reviewerData } = await supabase
+                .from("profiles")
+                .select(
+                  `
+            id,
+            username,
+            display_name,
+            avatar_url
+          `,
+                )
+                .eq("id", review.reviewer_id)
+                .maybeSingle();
+
+              return {
+                ...review,
+                rating: Number(review.rating),
+                reviewer: reviewerData || undefined,
+              };
+            }),
+          );
+
+          setReviews(reviewsWithProfiles);
+          setReviewCount(reviewsWithProfiles.length);
+
+          if (reviewsWithProfiles.length > 0) {
+            const total = reviewsWithProfiles.reduce(
+              (sum, review) => sum + Number(review.rating),
+              0,
+            );
+
+            setAverageRating(total / reviewsWithProfiles.length);
+          } else {
+            setAverageRating(null);
+          }
+        }
+
         /*
          * PRODUCTS
          */
-        const {
-          data: productData,
-          error: productError,
-        } = await supabase
+        const { data: productData, error: productError } = await supabase
           .from("products")
-          .select(`
+          .select(
+            `
             id,
             seller_id,
             title,
@@ -174,117 +235,73 @@ export default function SellerPage() {
               image_url,
               position
             )
-          `)
-          .eq(
-            "seller_id",
-            profileData.id
+          `,
           )
+          .eq("seller_id", profileData.id)
           .order("created_at", {
             ascending: false,
           });
 
         if (productError) {
-          console.error(
-            "Seller products error:",
-            productError
-          );
+          console.error("Seller products error:", productError);
         } else {
-          const normalizedProducts: Product[] =
-            (productData || []).map(
-              (product) => ({
-                ...product,
+          const normalizedProducts: Product[] = (productData || []).map(
+            (product) => ({
+              ...product,
 
-                price: Number(
-                  product.price
-                ),
+              price: Number(product.price),
 
-                product_images: [
-                  ...(
-                    product.product_images ||
-                    []
-                  ),
-                ].sort(
-                  (a, b) =>
-                    Number(a.position) -
-                    Number(b.position)
-                ),
-              })
-            );
-
-          setProducts(
-            normalizedProducts
+              product_images: [...(product.product_images || [])].sort(
+                (a, b) => Number(a.position) - Number(b.position),
+              ),
+            }),
           );
+
+          setProducts(normalizedProducts);
         }
 
         /*
          * FOLLOWER COUNT
          */
-        const {
-          count: followerCount,
-          error: followersError,
-        } = await supabase
+        const { count: followerCount, error: followersError } = await supabase
           .from("follows")
           .select("*", {
             count: "exact",
             head: true,
           })
-          .eq(
-            "seller_id",
-            profileData.id
-          );
+          .eq("seller_id", profileData.id);
 
         if (followersError) {
-          console.error(
-            "Followers error:",
-            followersError
-          );
+          console.error("Followers error:", followersError);
 
           setFollowersCount(0);
         } else {
-          setFollowersCount(
-            followerCount || 0
-          );
+          setFollowersCount(followerCount || 0);
         }
 
         /*
          * DOES CURRENT USER FOLLOW
          * THIS SELLER?
          */
-        if (
-          loggedInUserId &&
-          loggedInUserId !==
-          profileData.id
-        ) {
-          const {
-            data: followData,
-            error: followError,
-          } = await supabase
+        if (loggedInUserId && loggedInUserId !== profileData.id) {
+          const { data: followData, error: followError } = await supabase
             .from("follows")
-            .select(`
+            .select(
+              `
               follower_id,
               seller_id
-            `)
-            .eq(
-              "follower_id",
-              loggedInUserId
+            `,
             )
-            .eq(
-              "seller_id",
-              profileData.id
-            )
+            .eq("follower_id", loggedInUserId)
+            .eq("seller_id", profileData.id)
             .maybeSingle();
 
           if (followError) {
-            console.error(
-              "Follow lookup error:",
-              followError
-            );
+            console.error("Follow lookup error:", followError);
 
             setIsFollowing(false);
           } else {
-            setIsFollowing(
-              !!followData
-            );
+            setIsFollowing(!!followData);
           }
         } else {
           setIsFollowing(false);
@@ -293,62 +310,39 @@ export default function SellerPage() {
         /*
          * COMPLETED SALES
          */
-        const {
-          data: completedOrders,
-          error: salesError,
-        } = await supabase
+        const { data: completedOrders, error: salesError } = await supabase
           .from("orders")
-          .select(`
+          .select(
+            `
             id,
             product_id
-          `)
-          .eq(
-            "seller_id",
-            profileData.id
+          `,
           )
-          .eq(
-            "status",
-            "completed"
-          );
+          .eq("seller_id", profileData.id)
+          .eq("status", "completed");
 
         if (salesError) {
-          console.error(
-            "Completed sales error:",
-            salesError
-          );
+          console.error("Completed sales error:", salesError);
 
           setSalesCount(0);
           setSoldProductIds([]);
         } else {
-          const completed =
-            completedOrders || [];
+          const completed = completedOrders || [];
 
-          setSalesCount(
-            completed.length
-          );
+          setSalesCount(completed.length);
 
           setSoldProductIds(
             Array.from(
               new Set(
-                completed
-                  .map(
-                    (order) =>
-                      order.product_id
-                  )
-                  .filter(Boolean)
-              )
-            )
+                completed.map((order) => order.product_id).filter(Boolean),
+              ),
+            ),
           );
         }
       } catch (error) {
-        console.error(
-          "Seller page error:",
-          error
-        );
+        console.error("Seller page error:", error);
 
-        setMessage(
-          "Ocurrió un error al cargar este closet."
-        );
+        setMessage("Ocurrió un error al cargar este closet.");
       } finally {
         setLoading(false);
       }
@@ -370,9 +364,7 @@ export default function SellerPage() {
       return;
     }
 
-    if (
-      currentUserId === seller.id
-    ) {
+    if (currentUserId === seller.id) {
       return;
     }
 
@@ -384,85 +376,49 @@ export default function SellerPage() {
         /*
          * UNFOLLOW
          */
-        const { error } =
-          await supabase
-            .from("follows")
-            .delete()
-            .eq(
-              "follower_id",
-              currentUserId
-            )
-            .eq(
-              "seller_id",
-              seller.id
-            );
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", currentUserId)
+          .eq("seller_id", seller.id);
 
         if (error) {
-          console.error(
-            "Unfollow error:",
-            error
-          );
+          console.error("Unfollow error:", error);
 
-          setMessage(
-            "No pudimos dejar de seguir este closet."
-          );
+          setMessage("No pudimos dejar de seguir este closet.");
 
           return;
         }
 
         setIsFollowing(false);
 
-        setFollowersCount(
-          (current) =>
-            Math.max(
-              0,
-              current - 1
-            )
-        );
+        setFollowersCount((current) => Math.max(0, current - 1));
       } else {
         /*
          * FOLLOW
          */
-        const { error } =
-          await supabase
-            .from("follows")
-            .insert({
-              follower_id:
-                currentUserId,
+        const { error } = await supabase.from("follows").insert({
+          follower_id: currentUserId,
 
-              seller_id:
-                seller.id,
-            });
+          seller_id: seller.id,
+        });
 
         if (error) {
-          console.error(
-            "Follow error:",
-            error
-          );
+          console.error("Follow error:", error);
 
-          setMessage(
-            "No pudimos seguir este closet."
-          );
+          setMessage("No pudimos seguir este closet.");
 
           return;
         }
 
         setIsFollowing(true);
 
-        setFollowersCount(
-          (current) =>
-            current + 1
-        );
+        setFollowersCount((current) => current + 1);
       }
     } catch (error) {
-      console.error(
-        "Follow action error:",
-        error
-      );
+      console.error("Follow action error:", error);
 
-      setMessage(
-        "Ocurrió un error. Inténtalo nuevamente."
-      );
+      setMessage("Ocurrió un error. Inténtalo nuevamente.");
     } finally {
       setFollowLoading(false);
     }
@@ -486,118 +442,71 @@ export default function SellerPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
-        "/api/conversations/start",
-        {
-          method: "POST",
+      const response = await fetch("/api/conversations/start", {
+        method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+        headers: {
+          "Content-Type": "application/json",
+        },
 
-          body: JSON.stringify({
-            otherUserId: seller.id,
-          }),
-        }
-      );
+        body: JSON.stringify({
+          otherUserId: seller.id,
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(
-          data.error ||
-          "No pudimos iniciar la conversación."
-        );
+        setMessage(data.error || "No pudimos iniciar la conversación.");
 
         setMessageLoading(false);
         return;
       }
 
       if (!data.conversationId) {
-        setMessage(
-          "No pudimos encontrar la conversación."
-        );
+        setMessage("No pudimos encontrar la conversación.");
 
         setMessageLoading(false);
         return;
       }
 
-      window.location.href =
-        `/inbox/${data.conversationId}`;
+      window.location.href = `/inbox/${data.conversationId}`;
     } catch (error) {
-      console.error(
-        "Start conversation error:",
-        error
-      );
+      console.error("Start conversation error:", error);
 
-      setMessage(
-        "Ocurrió un error al iniciar la conversación."
-      );
+      setMessage("Ocurrió un error al iniciar la conversación.");
 
       setMessageLoading(false);
     }
   }
 
-  const isOwner =
-    !!currentUserId &&
-    !!seller &&
-    currentUserId === seller.id;
+  const isOwner = !!currentUserId && !!seller && currentUserId === seller.id;
 
   const displayName =
-    seller?.display_name ||
-    seller?.username?.replace(
-      /^@/,
-      ""
-    ) ||
-    "Closet";
+    seller?.display_name || seller?.username?.replace(/^@/, "") || "Closet";
 
-  const displayUsername =
-    seller?.username?.replace(
-      /^@/,
-      ""
-    ) ||
-    username;
+  const displayUsername = seller?.username?.replace(/^@/, "") || username;
 
-  const initial =
-    displayName
-      .charAt(0)
-      .toUpperCase() || "?";
+  const initial = displayName.charAt(0).toUpperCase() || "?";
 
   /*
    * ACTIVE PRODUCTS
    */
-  const activeProducts =
-    products.filter(
-      (product) =>
-        product.status ===
-        "active" &&
-        !soldProductIds.includes(
-          product.id
-        )
-    );
+  const activeProducts = products.filter(
+    (product) =>
+      product.status === "active" && !soldProductIds.includes(product.id),
+  );
 
   /*
    * SOLD PRODUCTS
    */
-  const soldProducts =
-    products.filter((product) =>
-      soldProductIds.includes(
-        product.id
-      )
-    );
+  const soldProducts = products.filter((product) =>
+    soldProductIds.includes(product.id),
+  );
 
-  const visibleProducts =
-    tab === "closet"
-      ? activeProducts
-      : soldProducts;
+  const visibleProducts = tab === "closet" ? activeProducts : soldProducts;
 
-  const location = [
-    seller?.city,
-    seller?.province,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const location = [seller?.city, seller?.province].filter(Boolean).join(", ");
 
   /*
    * LOADING
@@ -605,9 +514,7 @@ export default function SellerPage() {
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
-        <p className="text-sm text-zinc-400">
-          Cargando closet...
-        </p>
+        <p className="text-sm text-zinc-400">Cargando closet...</p>
       </main>
     );
   }
@@ -619,13 +526,10 @@ export default function SellerPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
         <div className="text-center">
-          <h1 className="text-xl font-black">
-            Closet no encontrado
-          </h1>
+          <h1 className="text-xl font-black">Closet no encontrado</h1>
 
           <p className="mt-2 text-sm text-zinc-500">
-            Este usuario no existe o ya
-            no está disponible.
+            Este usuario no existe o ya no está disponible.
           </p>
 
           <Link
@@ -642,7 +546,6 @@ export default function SellerPage() {
   return (
     <main className="min-h-screen bg-white pb-10 text-black">
       <div className="mx-auto max-w-md">
-
         {/* TOP BAR */}
 
         <div className="flex items-center justify-between px-4 py-4">
@@ -653,9 +556,7 @@ export default function SellerPage() {
             <ArrowLeft size={20} />
           </Link>
 
-          <p className="max-w-[220px] truncate font-bold">
-            @{displayUsername}
-          </p>
+          <p className="max-w-[220px] truncate font-bold">@{displayUsername}</p>
 
           <div className="h-10 w-10" />
         </div>
@@ -664,15 +565,12 @@ export default function SellerPage() {
 
         <section className="px-5 pt-4">
           <div className="flex items-center">
-
             {/* AVATAR */}
 
             {seller.avatar_url ? (
               <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-zinc-100">
                 <img
-                  src={
-                    seller.avatar_url
-                  }
+                  src={seller.avatar_url}
                   alt={displayName}
                   className="h-full w-full object-cover"
                 />
@@ -687,35 +585,21 @@ export default function SellerPage() {
 
             <div className="ml-5 flex flex-1 justify-around text-center">
               <div>
-                <p className="text-lg font-black">
-                  {
-                    activeProducts.length
-                  }
-                </p>
+                <p className="text-lg font-black">{activeProducts.length}</p>
 
-                <p className="text-xs text-zinc-500">
-                  Productos
-                </p>
+                <p className="text-xs text-zinc-500">Productos</p>
               </div>
 
               <div>
-                <p className="text-lg font-black">
-                  {followersCount}
-                </p>
+                <p className="text-lg font-black">{followersCount}</p>
 
-                <p className="text-xs text-zinc-500">
-                  Seguidores
-                </p>
+                <p className="text-xs text-zinc-500">Seguidores</p>
               </div>
 
               <div>
-                <p className="text-lg font-black">
-                  {salesCount}
-                </p>
+                <p className="text-lg font-black">{salesCount}</p>
 
-                <p className="text-xs text-zinc-500">
-                  Ventas
-                </p>
+                <p className="text-xs text-zinc-500">Ventas</p>
               </div>
             </div>
           </div>
@@ -724,15 +608,9 @@ export default function SellerPage() {
 
           <div className="mt-5">
             <div className="flex items-center gap-1">
-              <h1 className="text-xl font-bold">
-                {displayName}
-              </h1>
+              <h1 className="text-xl font-bold">{displayName}</h1>
 
-              {seller.verified && (
-                <ShieldCheck
-                  size={17}
-                />
-              )}
+              {seller.verified && <ShieldCheck size={17} />}
             </div>
 
             {/* LOCATION */}
@@ -741,11 +619,38 @@ export default function SellerPage() {
               <div className="mt-2 flex items-center gap-1 text-xs text-zinc-500">
                 <MapPin size={13} />
 
-                <span>
-                  {location}
-                </span>
+                <span>{location}</span>
               </div>
             )}
+
+            {/* RATING */}
+
+            <div className="mt-3 flex items-center gap-1.5">
+              <Star
+                size={14}
+                fill={averageRating !== null ? "currentColor" : "none"}
+                className={
+                  averageRating !== null ? "text-black" : "text-zinc-400"
+                }
+              />
+
+              {averageRating !== null ? (
+                <>
+                  <span className="text-sm font-bold">
+                    {averageRating.toFixed(1)}
+                  </span>
+
+                  <span className="text-xs text-zinc-400">
+                    · {reviewCount}{" "}
+                    {reviewCount === 1 ? "calificación" : "calificaciones"}
+                  </span>
+                </>
+              ) : (
+                <span className="text-xs text-zinc-400">
+                  Sin calificaciones todavía
+                </span>
+              )}
+            </div>
 
             {/* BIO */}
 
@@ -765,7 +670,6 @@ export default function SellerPage() {
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-300 py-3 text-sm font-bold"
               >
                 <Pencil size={16} />
-
                 Editar perfil
               </Link>
 
@@ -774,7 +678,6 @@ export default function SellerPage() {
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-black py-3 text-sm font-bold text-white"
               >
                 <Wallet size={17} />
-
                 Mi billetera
               </Link>
             </div>
@@ -785,20 +688,15 @@ export default function SellerPage() {
             <div className="mt-5 flex gap-2">
               <button
                 type="button"
-                onClick={
-                  toggleFollow
-                }
-                disabled={
-                  followLoading
-                }
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition disabled:opacity-50 ${isFollowing
+                onClick={toggleFollow}
+                disabled={followLoading}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition disabled:opacity-50 ${
+                  isFollowing
                     ? "border border-zinc-300 bg-white text-black"
                     : "bg-black text-white"
-                  }`}
+                }`}
               >
-                {isFollowing && (
-                  <Check size={16} />
-                )}
+                {isFollowing && <Check size={16} />}
 
                 {followLoading
                   ? "Procesando..."
@@ -813,9 +711,7 @@ export default function SellerPage() {
                 disabled={messageLoading}
                 className="flex flex-1 items-center justify-center rounded-xl border border-zinc-300 py-3 text-sm font-bold transition disabled:opacity-50"
               >
-                {messageLoading
-                  ? "Abriendo..."
-                  : "Mensaje"}
+                {messageLoading ? "Abriendo..." : "Mensaje"}
               </button>
             </div>
           )}
@@ -834,146 +730,352 @@ export default function SellerPage() {
         <div className="mt-7 flex border-b border-zinc-200">
           <button
             type="button"
-            onClick={() =>
-              setTab("closet")
-            }
-            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm ${tab === "closet"
+            onClick={() => setTab("closet")}
+            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-xs ${
+              tab === "closet"
                 ? "border-black font-bold text-black"
                 : "border-transparent text-zinc-400"
-              }`}
+            }`}
           >
             <Grid3X3 size={16} />
-
             Closet
           </button>
 
           <button
             type="button"
-            onClick={() =>
-              setTab("sold")
-            }
-            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm ${tab === "sold"
+            onClick={() => setTab("sold")}
+            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-xs ${
+              tab === "sold"
                 ? "border-black font-bold text-black"
                 : "border-transparent text-zinc-400"
-              }`}
+            }`}
           >
             <Heart size={16} />
-
             Vendidos
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("reviews")}
+            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 text-xs ${
+              tab === "reviews"
+                ? "border-black font-bold text-black"
+                : "border-transparent text-zinc-400"
+            }`}
+          >
+            <Star size={15} />
+            Calificaciones
           </button>
         </div>
 
-        {/* EMPTY STATE */}
+                {tab !== "reviews" && (
+          <>
+            {/* EMPTY STATE / PRODUCTS */}
 
-        {visibleProducts.length ===
-          0 ? (
-          <section className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
-              {tab ===
-                "closet" ? (
-                <Grid3X3
-                  size={22}
-                  className="text-zinc-400"
-                />
-              ) : (
-                <Heart
-                  size={22}
-                  className="text-zinc-400"
-                />
-              )}
-            </div>
+            {visibleProducts.length === 0 ? (
+              <section className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+                  {tab === "closet" ? (
+                    <Grid3X3
+                      size={22}
+                      className="text-zinc-400"
+                    />
+                  ) : (
+                    <Heart
+                      size={22}
+                      className="text-zinc-400"
+                    />
+                  )}
+                </div>
 
-            <p className="mt-4 text-sm font-bold">
-              {tab === "closet"
-                ? "Este closet está vacío"
-                : "Todavía no hay artículos vendidos"}
-            </p>
+                <p className="mt-4 text-sm font-bold">
+                  {tab === "closet"
+                    ? "Este closet está vacío"
+                    : "Todavía no hay artículos vendidos"}
+                </p>
 
-            <p className="mt-1 text-xs text-zinc-400">
-              {tab === "closet"
-                ? isOwner
-                  ? "Publica tu primer artículo para comenzar."
-                  : "Este vendedor no tiene artículos disponibles."
-                : "Los artículos vendidos aparecerán aquí."}
-            </p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  {tab === "closet"
+                    ? isOwner
+                      ? "Publica tu primer artículo para comenzar."
+                      : "Este vendedor no tiene artículos disponibles."
+                    : "Los artículos vendidos aparecerán aquí."}
+                </p>
 
-            {tab === "closet" &&
-              isOwner && (
-                <Link
-                  href="/sell"
-                  className="mt-5 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
-                >
-                  Vender un artículo
-                </Link>
-              )}
-          </section>
-        ) : (
-          /*
-           * PRODUCTS
-           */
-          <section className="grid grid-cols-2 gap-x-1 gap-y-5 pt-1">
-            {visibleProducts.map(
-              (product) => {
-                const cover =
-                  product
-                    .product_images?.[0]
-                    ?.image_url ||
-                  null;
-
-                const isSold =
-                  soldProductIds.includes(
-                    product.id
-                  );
-
-                return (
+                {tab === "closet" && isOwner && (
                   <Link
-                    key={product.id}
-                    href={`/product/${product.id}`}
+                    href="/sell"
+                    className="mt-5 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
                   >
-                    <article>
-                      <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
-                        {cover ? (
-                          <img
-                            src={cover}
-                            alt={
-                              product.title
-                            }
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-zinc-400">
-                            Sin foto
-                          </div>
-                        )}
-
-                        {isSold && (
-                          <div className="absolute inset-x-0 bottom-0 bg-black/75 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-white">
-                            Vendido
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="px-3 pt-3">
-                        <p className="truncate text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">
-                          {product.brand ||
-                            "Sin marca"}
-                        </p>
-
-                        <h2 className="mt-1 truncate text-sm font-semibold">
-                          {product.title}
-                        </h2>
-
-                        <p className="mt-2 text-lg font-black">
-                          $
-                          {Number(
-                            product.price
-                          ).toFixed(2)}
-                        </p>
-                      </div>
-                    </article>
+                    Vender un artículo
                   </Link>
-                );
-              }
+                )}
+              </section>
+            ) : (
+              <section className="grid grid-cols-2 gap-x-1 gap-y-5 pt-1">
+                {visibleProducts.map((product) => {
+                  const cover =
+                    product.product_images?.[0]
+                      ?.image_url || null;
+
+                  const isSold =
+                    soldProductIds.includes(
+                      product.id
+                    );
+
+                  return (
+                    <Link
+                      key={product.id}
+                      href={`/product/${product.id}`}
+                    >
+                      <article>
+                        <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
+                          {cover ? (
+                            <img
+                              src={cover}
+                              alt={product.title}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                              Sin foto
+                            </div>
+                          )}
+
+                          {isSold && (
+                            <div className="absolute inset-x-0 bottom-0 bg-black/75 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-white">
+                              Vendido
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="px-3 pt-3">
+                          <p className="truncate text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">
+                            {product.brand ||
+                              "Sin marca"}
+                          </p>
+
+                          <h2 className="mt-1 truncate text-sm font-semibold">
+                            {product.title}
+                          </h2>
+
+                          <p className="mt-2 text-lg font-black">
+                            $
+                            {Number(
+                              product.price
+                            ).toFixed(2)}
+                          </p>
+                        </div>
+                      </article>
+                    </Link>
+                  );
+                })}
+              </section>
+            )}
+          </>
+        )}
+
+        {/* REVIEWS */}
+
+        {tab === "reviews" && (
+          <section className="px-5 py-6">
+            {reviews.length === 0 ? (
+              <div className="flex min-h-[280px] flex-col items-center justify-center text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+                  <Star
+                    size={22}
+                    className="text-zinc-400"
+                  />
+                </div>
+
+                <p className="mt-4 text-sm font-bold">
+                  Sin calificaciones todavía
+                </p>
+
+                <p className="mt-1 max-w-[260px] text-xs leading-5 text-zinc-400">
+                  Las calificaciones de compras
+                  verificadas aparecerán aquí.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* RATING SUMMARY */}
+
+                <div className="mb-6 rounded-2xl bg-zinc-50 p-5">
+                  <div className="flex items-end gap-3">
+                    <span className="text-4xl font-black">
+                      {averageRating?.toFixed(1)}
+                    </span>
+
+                    <div className="pb-1">
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map(
+                          (star) => {
+                            const active =
+                              averageRating !==
+                                null &&
+                              star <=
+                                Math.round(
+                                  averageRating
+                                );
+
+                            return (
+                              <Star
+                                key={star}
+                                size={16}
+                                fill={
+                                  active
+                                    ? "currentColor"
+                                    : "none"
+                                }
+                                className={
+                                  active
+                                    ? "text-black"
+                                    : "text-zinc-300"
+                                }
+                              />
+                            );
+                          }
+                        )}
+                      </div>
+
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {reviewCount}{" "}
+                        {reviewCount === 1
+                          ? "calificación"
+                          : "calificaciones"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* REVIEW CARDS */}
+
+                <div className="space-y-4">
+                  {reviews.map((review) => {
+                    const reviewerName =
+                      review.reviewer
+                        ?.display_name ||
+                      review.reviewer?.username?.replace(
+                        /^@/,
+                        ""
+                      ) ||
+                      "Comprador";
+
+                    const reviewerUsername =
+                      review.reviewer?.username?.replace(
+                        /^@/,
+                        ""
+                      );
+
+                    const initial =
+                      reviewerName
+                        .charAt(0)
+                        .toUpperCase() || "?";
+
+                    const reviewDate =
+                      new Intl.DateTimeFormat(
+                        "es-PA",
+                        {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        }
+                      ).format(
+                        new Date(
+                          review.created_at
+                        )
+                      );
+
+                    return (
+                      <article
+                        key={review.id}
+                        className="border-b border-zinc-100 pb-5"
+                      >
+                        <div className="flex items-start gap-3">
+                          {review.reviewer
+                            ?.avatar_url ? (
+                            <img
+                              src={
+                                review.reviewer
+                                  .avatar_url
+                              }
+                              alt={reviewerName}
+                              className="h-10 w-10 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black">
+                              {initial}
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-bold">
+                                  {
+                                    reviewerName
+                                  }
+                                </p>
+
+                                {reviewerUsername && (
+                                  <p className="text-xs text-zinc-400">
+                                    @
+                                    {
+                                      reviewerUsername
+                                    }
+                                  </p>
+                                )}
+                              </div>
+
+                              <span className="shrink-0 text-[11px] text-zinc-400">
+                                {reviewDate}
+                              </span>
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-2">
+                              <div className="flex gap-0.5">
+                                {[
+                                  1, 2, 3, 4, 5,
+                                ].map((star) => (
+                                  <Star
+                                    key={star}
+                                    size={14}
+                                    fill={
+                                      star <=
+                                      review.rating
+                                        ? "currentColor"
+                                        : "none"
+                                    }
+                                    className={
+                                      star <=
+                                      review.rating
+                                        ? "text-black"
+                                        : "text-zinc-300"
+                                    }
+                                  />
+                                ))}
+                              </div>
+
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                                Compra verificada
+                              </span>
+                            </div>
+
+                            {review.comment && (
+                              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-600">
+                                {
+                                  review.comment
+                                }
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </section>
         )}

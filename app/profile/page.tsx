@@ -8,6 +8,7 @@ import {
   MapPin,
   ShieldCheck,
   Star,
+  Wallet,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -43,6 +44,9 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
 
+  const [averageRating, setAverageRating] = useState<number | null>(null);
+  const [reviewCount, setReviewCount] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -59,12 +63,11 @@ export default function ProfilePage() {
       }
 
       // LOAD PROFILE
-      const { data: profileData, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .maybeSingle();
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
 
       if (profileError) {
         setError(profileError.message);
@@ -80,11 +83,35 @@ export default function ProfilePage() {
 
       setProfile(profileData);
 
+      // LOAD SELLER RATINGS
+      const { data: reviewData, error: reviewError } = await supabase
+        .from("reviews")
+        .select("rating")
+        .eq("seller_id", user.id);
+
+      if (reviewError) {
+        console.error("Reviews error:", reviewError);
+      } else {
+        const ratings = (reviewData || []).map((review) =>
+          Number(review.rating),
+        );
+
+        setReviewCount(ratings.length);
+
+        if (ratings.length > 0) {
+          const total = ratings.reduce((sum, rating) => sum + rating, 0);
+
+          setAverageRating(total / ratings.length);
+        } else {
+          setAverageRating(null);
+        }
+      }
+
       // LOAD USER'S PRODUCTS
-      const { data: productData, error: productError } =
-        await supabase
-          .from("products")
-          .select(`
+      const { data: productData, error: productError } = await supabase
+        .from("products")
+        .select(
+          `
             id,
             title,
             brand,
@@ -94,9 +121,10 @@ export default function ProfilePage() {
               image_url,
               position
             )
-          `)
-          .eq("seller_id", user.id)
-          .order("created_at", { ascending: false });
+          `,
+        )
+        .eq("seller_id", user.id)
+        .order("created_at", { ascending: false });
 
       if (productError) {
         setError(productError.message);
@@ -107,7 +135,7 @@ export default function ProfilePage() {
       const cleanProducts = (productData || []).map((product) => ({
         ...product,
         product_images: [...(product.product_images || [])].sort(
-          (a, b) => a.position - b.position
+          (a, b) => a.position - b.position,
         ),
       }));
 
@@ -126,9 +154,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
-        <p className="text-sm text-zinc-500">
-          Cargando perfil...
-        </p>
+        <p className="text-sm text-zinc-500">Cargando perfil...</p>
       </main>
     );
   }
@@ -137,13 +163,9 @@ export default function ProfilePage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
         <div className="max-w-md text-center">
-          <p className="font-bold">
-            No pudimos cargar tu perfil.
-          </p>
+          <p className="font-bold">No pudimos cargar tu perfil.</p>
 
-          <p className="mt-2 text-sm text-zinc-500">
-            {error}
-          </p>
+          <p className="mt-2 text-sm text-zinc-500">{error}</p>
         </div>
       </main>
     );
@@ -154,17 +176,14 @@ export default function ProfilePage() {
     profile.username.charAt(0).toUpperCase();
 
   const activeProducts = products.filter(
-    (product) => product.status === "active"
+    (product) => product.status === "active",
   );
 
-  const soldProducts = products.filter(
-    (product) => product.status === "sold"
-  );
+  const soldProducts = products.filter((product) => product.status === "sold");
 
   return (
     <main className="min-h-screen bg-white pb-10 text-black">
       <div className="mx-auto max-w-md">
-
         {/* HEADER */}
         <header className="flex items-center justify-between px-4 py-4">
           <Link
@@ -174,9 +193,7 @@ export default function ProfilePage() {
             <ArrowLeft size={20} />
           </Link>
 
-          <p className="font-bold">
-            Mi perfil
-          </p>
+          <p className="font-bold">Mi perfil</p>
 
           <button
             onClick={handleLogout}
@@ -189,7 +206,6 @@ export default function ProfilePage() {
         {/* PROFILE */}
         <section className="px-5 pt-5">
           <div className="flex items-center">
-
             {profile.avatar_url ? (
               <img
                 src={profile.avatar_url}
@@ -208,14 +224,10 @@ export default function ProfilePage() {
                   {profile.display_name || profile.username}
                 </h1>
 
-                {profile.verified && (
-                  <ShieldCheck size={17} />
-                )}
+                {profile.verified && <ShieldCheck size={17} />}
               </div>
 
-              <p className="mt-1 text-sm text-zinc-500">
-                @{profile.username}
-              </p>
+              <p className="mt-1 text-sm text-zinc-500">@{profile.username}</p>
 
               <span className="mt-2 inline-block rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold">
                 {profile.account_type === "business"
@@ -228,33 +240,21 @@ export default function ProfilePage() {
           {/* REAL STATS */}
           <div className="mt-6 flex gap-8">
             <div>
-              <p className="text-lg font-black">
-                {activeProducts.length}
-              </p>
+              <p className="text-lg font-black">{activeProducts.length}</p>
 
-              <p className="text-xs text-zinc-500">
-                Productos
-              </p>
+              <p className="text-xs text-zinc-500">Productos</p>
             </div>
 
             <div>
-              <p className="text-lg font-black">
-                0
-              </p>
+              <p className="text-lg font-black">0</p>
 
-              <p className="text-xs text-zinc-500">
-                Seguidores
-              </p>
+              <p className="text-xs text-zinc-500">Seguidores</p>
             </div>
 
             <div>
-              <p className="text-lg font-black">
-                {soldProducts.length}
-              </p>
+              <p className="text-lg font-black">{soldProducts.length}</p>
 
-              <p className="text-xs text-zinc-500">
-                Ventas
-              </p>
+              <p className="text-xs text-zinc-500">Ventas</p>
             </div>
           </div>
 
@@ -264,8 +264,8 @@ export default function ProfilePage() {
             </p>
           ) : (
             <p className="mt-5 text-sm text-zinc-400">
-              Agrega una biografía para que los compradores
-              conozcan más sobre ti.
+              Agrega una biografía para que los compradores conozcan más sobre
+              ti.
             </p>
           )}
 
@@ -273,23 +273,51 @@ export default function ProfilePage() {
             <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
               <MapPin size={14} />
 
-              {[profile.city, profile.province]
-                .filter(Boolean)
-                .join(", ")}
+              {[profile.city, profile.province].filter(Boolean).join(", ")}
             </div>
           )}
 
-          <div className="mt-4 flex items-center gap-1 text-xs text-zinc-500">
-            <Star size={13} fill="currentColor" />
-            <span>Sin calificaciones todavía</span>
+          <div className="mt-4 flex items-center gap-1.5 text-sm">
+            <Star
+              size={15}
+              fill={averageRating !== null ? "currentColor" : "none"}
+              className={
+                averageRating !== null ? "text-black" : "text-zinc-400"
+              }
+            />
+
+            {averageRating !== null ? (
+              <>
+                <span className="font-bold">{averageRating.toFixed(1)}</span>
+
+                <span className="text-zinc-400">
+                  · {reviewCount}{" "}
+                  {reviewCount === 1 ? "calificación" : "calificaciones"}
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-zinc-500">
+                Sin calificaciones todavía
+              </span>
+            )}
           </div>
 
-          <Link
-            href="/profile/edit"
-            className="mt-6 block w-full rounded-2xl bg-black py-4 text-center text-sm font-bold text-white"
-          >
-            Editar perfil
-          </Link>
+          <div className="mt-6 space-y-3">
+            <Link
+              href="/profile/edit"
+              className="block w-full rounded-2xl bg-black py-4 text-center text-sm font-bold text-white"
+            >
+              Editar perfil
+            </Link>
+
+            <Link
+              href="/seller/wallet"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white py-4 text-sm font-bold text-black"
+            >
+              <Wallet size={18} />
+              Mi billetera
+            </Link>
+          </div>
         </section>
 
         <div className="mt-8 h-2 bg-zinc-50" />
@@ -333,14 +361,10 @@ export default function ProfilePage() {
           ) : (
             <div className="mt-6 grid grid-cols-2 gap-x-2 gap-y-6">
               {activeProducts.map((product) => {
-                const cover =
-                  product.product_images?.[0]?.image_url;
+                const cover = product.product_images?.[0]?.image_url;
 
                 return (
-                  <Link
-                    key={product.id}
-                    href={`/product/${product.id}`}
-                  >
+                  <Link key={product.id} href={`/product/${product.id}`}>
                     <article>
                       <div className="aspect-[3/4] overflow-hidden rounded-xl bg-zinc-100">
                         {cover ? (
