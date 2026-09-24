@@ -428,101 +428,43 @@ export default function ProductPage() {
       return;
     }
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      window.location.href = "/auth";
-      return;
-    }
-
-    if (user.id === product.seller_id) {
-      setBuyMessage("No puedes comprar tu propia publicación.");
-      return;
-    }
-
     setBuying(true);
     setBuyMessage("");
 
     try {
-      // Check whether this buyer already has a pending checkout
-      // for this exact product.
-      const { data: existingOrder, error: existingOrderError } = await supabase
-        .from("orders")
-        .select("id")
-        .eq("product_id", product.id)
-        .eq("buyer_id", user.id)
-        .eq("seller_id", product.seller_id)
-        .eq("status", "pending_payment")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const response = await fetch("/api/orders/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          productId: product.id,
+        }),
+      });
 
-      if (existingOrderError) {
-        console.error("Existing order lookup error:", existingOrderError);
-        setBuyMessage("No pudimos preparar la compra.");
+      const data = await response.json();
+
+      if (response.status === 401) {
+        window.location.href = "/auth";
         return;
       }
 
-      // Reuse an existing pending checkout instead of creating duplicates.
-      if (existingOrder) {
-        window.location.href = `/checkout/${existingOrder.id}`;
+      if (!response.ok) {
+        setBuyMessage(data.error || "No pudimos iniciar la compra.");
         return;
       }
 
-      // Re-check the product immediately before creating the order.
-      const { data: latestProduct, error: productCheckError } = await supabase
-        .from("products")
-        .select("id, seller_id, price, status")
-        .eq("id", product.id)
-        .maybeSingle();
+      const orderId = data.order?.id;
 
-      if (productCheckError) {
-        console.error("Product availability check error:", productCheckError);
-        setBuyMessage("No pudimos verificar el artículo.");
+      if (!orderId) {
+        setBuyMessage("El pedido fue creado, pero no recibimos su ID.");
         return;
       }
 
-      if (!latestProduct || latestProduct.status !== "active") {
-        setBuyMessage("Este artículo ya fue vendido o no está disponible.");
-        return;
-      }
-
-      if (latestProduct.seller_id !== product.seller_id) {
-        setBuyMessage("No pudimos verificar el vendedor.");
-        return;
-      }
-
-      const amount = Number(latestProduct.price);
-
-      if (!Number.isFinite(amount) || amount <= 0) {
-        setBuyMessage("El precio del artículo no es válido.");
-        return;
-      }
-
-      const { data: newOrder, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          product_id: latestProduct.id,
-          buyer_id: user.id,
-          seller_id: latestProduct.seller_id,
-          amount,
-          status: "pending_payment",
-        })
-        .select("id")
-        .single();
-
-      if (orderError) {
-        console.error("Create order error:", orderError);
-        setBuyMessage("No pudimos iniciar la compra.");
-        return;
-      }
-
-      window.location.href = `/checkout/${newOrder.id}`;
+      window.location.href = `/checkout/${orderId}`;
     } catch (error) {
       console.error("Buy now error:", error);
+
       setBuyMessage("Ocurrió un error al iniciar la compra.");
     } finally {
       setBuying(false);
