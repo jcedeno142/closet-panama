@@ -46,6 +46,7 @@ export default function ProfilePage() {
 
   const [averageRating, setAverageRating] = useState<number | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
+  const [completedSalesCount, setCompletedSalesCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -105,6 +106,23 @@ export default function ProfilePage() {
         } else {
           setAverageRating(null);
         }
+      }
+
+      // LOAD COMPLETED SALES
+      const { count: completedSales, error: salesError } = await supabase
+        .from("orders")
+        .select("id", {
+          count: "exact",
+          head: true,
+        })
+        .eq("seller_id", user.id)
+        .eq("status", "completed");
+
+      if (salesError) {
+        console.error("Completed sales error:", salesError);
+        setCompletedSalesCount(0);
+      } else {
+        setCompletedSalesCount(completedSales || 0);
       }
 
       // LOAD USER'S PRODUCTS
@@ -179,8 +197,6 @@ export default function ProfilePage() {
     (product) => product.status === "active",
   );
 
-  const soldProducts = products.filter((product) => product.status === "sold");
-
   return (
     <main className="min-h-screen bg-white pb-10 text-black">
       <div className="mx-auto max-w-md">
@@ -252,7 +268,7 @@ export default function ProfilePage() {
             </div>
 
             <div>
-              <p className="text-lg font-black">{soldProducts.length}</p>
+              <p className="text-lg font-black">{completedSalesCount}</p>
 
               <p className="text-xs text-zinc-500">Ventas</p>
             </div>

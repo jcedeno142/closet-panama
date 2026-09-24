@@ -47,7 +47,6 @@ const categories = [
   "Mujer",
   "Hombre",
   "Sneakers",
-  "Boutiques",
   "Vintage",
   "Lujo",
 ];
