@@ -493,8 +493,7 @@ export default function SellerPage() {
    * ACTIVE PRODUCTS
    */
   const activeProducts = products.filter(
-    (product) =>
-      product.status === "active" && !soldProductIds.includes(product.id),
+    (product) => product.status === "active",
   );
 
   /*
@@ -768,7 +767,7 @@ export default function SellerPage() {
           </button>
         </div>
 
-                {tab !== "reviews" && (
+        {tab !== "reviews" && (
           <>
             {/* EMPTY STATE / PRODUCTS */}
 
@@ -776,15 +775,9 @@ export default function SellerPage() {
               <section className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
                   {tab === "closet" ? (
-                    <Grid3X3
-                      size={22}
-                      className="text-zinc-400"
-                    />
+                    <Grid3X3 size={22} className="text-zinc-400" />
                   ) : (
-                    <Heart
-                      size={22}
-                      className="text-zinc-400"
-                    />
+                    <Heart size={22} className="text-zinc-400" />
                   )}
                 </div>
 
@@ -814,20 +807,11 @@ export default function SellerPage() {
             ) : (
               <section className="grid grid-cols-2 gap-x-1 gap-y-5 pt-1">
                 {visibleProducts.map((product) => {
-                  const cover =
-                    product.product_images?.[0]
-                      ?.image_url || null;
+                  const cover = product.product_images?.[0]?.image_url || null;
 
-                  const isSold =
-                    soldProductIds.includes(
-                      product.id
-                    );
-
+                  const isSold = tab === "sold";
                   return (
-                    <Link
-                      key={product.id}
-                      href={`/product/${product.id}`}
-                    >
+                    <Link key={product.id} href={`/product/${product.id}`}>
                       <article>
                         <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
                           {cover ? (
@@ -851,8 +835,7 @@ export default function SellerPage() {
 
                         <div className="px-3 pt-3">
                           <p className="truncate text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">
-                            {product.brand ||
-                              "Sin marca"}
+                            {product.brand || "Sin marca"}
                           </p>
 
                           <h2 className="mt-1 truncate text-sm font-semibold">
@@ -860,10 +843,7 @@ export default function SellerPage() {
                           </h2>
 
                           <p className="mt-2 text-lg font-black">
-                            $
-                            {Number(
-                              product.price
-                            ).toFixed(2)}
+                            ${Number(product.price).toFixed(2)}
                           </p>
                         </div>
                       </article>
@@ -882,10 +862,7 @@ export default function SellerPage() {
             {reviews.length === 0 ? (
               <div className="flex min-h-[280px] flex-col items-center justify-center text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
-                  <Star
-                    size={22}
-                    className="text-zinc-400"
-                  />
+                  <Star size={22} className="text-zinc-400" />
                 </div>
 
                 <p className="mt-4 text-sm font-bold">
@@ -893,8 +870,7 @@ export default function SellerPage() {
                 </p>
 
                 <p className="mt-1 max-w-[260px] text-xs leading-5 text-zinc-400">
-                  Las calificaciones de compras
-                  verificadas aparecerán aquí.
+                  Las calificaciones de compras verificadas aparecerán aquí.
                 </p>
               </div>
             ) : (
@@ -909,41 +885,27 @@ export default function SellerPage() {
 
                     <div className="pb-1">
                       <div className="flex gap-0.5">
-                        {[1, 2, 3, 4, 5].map(
-                          (star) => {
-                            const active =
-                              averageRating !==
-                                null &&
-                              star <=
-                                Math.round(
-                                  averageRating
-                                );
+                        {[1, 2, 3, 4, 5].map((star) => {
+                          const active =
+                            averageRating !== null &&
+                            star <= Math.round(averageRating);
 
-                            return (
-                              <Star
-                                key={star}
-                                size={16}
-                                fill={
-                                  active
-                                    ? "currentColor"
-                                    : "none"
-                                }
-                                className={
-                                  active
-                                    ? "text-black"
-                                    : "text-zinc-300"
-                                }
-                              />
-                            );
-                          }
-                        )}
+                          return (
+                            <Star
+                              key={star}
+                              size={16}
+                              fill={active ? "currentColor" : "none"}
+                              className={
+                                active ? "text-black" : "text-zinc-300"
+                              }
+                            />
+                          );
+                        })}
                       </div>
 
                       <p className="mt-1 text-xs text-zinc-400">
                         {reviewCount}{" "}
-                        {reviewCount === 1
-                          ? "calificación"
-                          : "calificaciones"}
+                        {reviewCount === 1 ? "calificación" : "calificaciones"}
                       </p>
                     </div>
                   </div>
@@ -954,38 +916,22 @@ export default function SellerPage() {
                 <div className="space-y-4">
                   {reviews.map((review) => {
                     const reviewerName =
-                      review.reviewer
-                        ?.display_name ||
-                      review.reviewer?.username?.replace(
-                        /^@/,
-                        ""
-                      ) ||
+                      review.reviewer?.display_name ||
+                      review.reviewer?.username?.replace(/^@/, "") ||
                       "Comprador";
 
-                    const reviewerUsername =
-                      review.reviewer?.username?.replace(
-                        /^@/,
-                        ""
-                      );
+                    const reviewerUsername = review.reviewer?.username?.replace(
+                      /^@/,
+                      "",
+                    );
 
-                    const initial =
-                      reviewerName
-                        .charAt(0)
-                        .toUpperCase() || "?";
+                    const initial = reviewerName.charAt(0).toUpperCase() || "?";
 
-                    const reviewDate =
-                      new Intl.DateTimeFormat(
-                        "es-PA",
-                        {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        }
-                      ).format(
-                        new Date(
-                          review.created_at
-                        )
-                      );
+                    const reviewDate = new Intl.DateTimeFormat("es-PA", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    }).format(new Date(review.created_at));
 
                     return (
                       <article
@@ -993,13 +939,9 @@ export default function SellerPage() {
                         className="border-b border-zinc-100 pb-5"
                       >
                         <div className="flex items-start gap-3">
-                          {review.reviewer
-                            ?.avatar_url ? (
+                          {review.reviewer?.avatar_url ? (
                             <img
-                              src={
-                                review.reviewer
-                                  .avatar_url
-                              }
+                              src={review.reviewer.avatar_url}
                               alt={reviewerName}
                               className="h-10 w-10 rounded-full object-cover"
                             />
@@ -1013,17 +955,12 @@ export default function SellerPage() {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-sm font-bold">
-                                  {
-                                    reviewerName
-                                  }
+                                  {reviewerName}
                                 </p>
 
                                 {reviewerUsername && (
                                   <p className="text-xs text-zinc-400">
-                                    @
-                                    {
-                                      reviewerUsername
-                                    }
+                                    @{reviewerUsername}
                                   </p>
                                 )}
                               </div>
@@ -1035,21 +972,17 @@ export default function SellerPage() {
 
                             <div className="mt-2 flex items-center gap-2">
                               <div className="flex gap-0.5">
-                                {[
-                                  1, 2, 3, 4, 5,
-                                ].map((star) => (
+                                {[1, 2, 3, 4, 5].map((star) => (
                                   <Star
                                     key={star}
                                     size={14}
                                     fill={
-                                      star <=
-                                      review.rating
+                                      star <= review.rating
                                         ? "currentColor"
                                         : "none"
                                     }
                                     className={
-                                      star <=
-                                      review.rating
+                                      star <= review.rating
                                         ? "text-black"
                                         : "text-zinc-300"
                                     }
@@ -1064,9 +997,7 @@ export default function SellerPage() {
 
                             {review.comment && (
                               <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-600">
-                                {
-                                  review.comment
-                                }
+                                {review.comment}
                               </p>
                             )}
                           </div>

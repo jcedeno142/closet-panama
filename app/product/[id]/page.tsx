@@ -27,6 +27,7 @@ type Product = {
   city: string | null;
   province: string | null;
   seller_id: string;
+  status: string;
 };
 
 type Seller = {
@@ -343,6 +344,10 @@ export default function ProductPage() {
 
     if (!product) return;
 
+    if (product.status === "sold") {
+      return;
+    }
+
     if (user.id === product.seller_id) {
       setOfferMessage("No puedes hacer una oferta por tu propio artículo.");
       return;
@@ -357,6 +362,11 @@ export default function ProductPage() {
     e.preventDefault();
 
     if (!product) return;
+
+    if (product.status === "sold") {
+      setOfferMessage("Este artículo ya fue vendido.");
+      return;
+    }
 
     const amount = Number(offerAmount);
 
@@ -436,6 +446,7 @@ export default function ProductPage() {
   }
 
   const isOwner = !!currentUserId && currentUserId === product.seller_id;
+  const isSold = product.status === "sold";
 
   const conditionLabels: Record<string, string> = {
     new: "Nuevo",
@@ -463,6 +474,12 @@ export default function ProductPage() {
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-zinc-400">
                 Sin fotos
+              </div>
+            )}
+
+            {isSold && (
+              <div className="absolute bottom-4 left-4 rounded-full bg-black px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-white">
+                Vendido
               </div>
             )}
 
@@ -636,7 +653,11 @@ export default function ProductPage() {
       {/* BOTTOM ACTION BAR */}
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white p-3">
         <div className="mx-auto flex max-w-md gap-2">
-          {isOwner ? (
+          {isSold ? (
+            <div className="flex-1 rounded-2xl bg-zinc-100 px-4 py-4 text-center text-sm font-black uppercase tracking-[0.15em] text-zinc-500">
+              Vendido
+            </div>
+          ) : isOwner ? (
             <Link
               href={`/product/${product.id}/edit`}
               className="flex-1 rounded-2xl bg-black px-4 py-4 text-center text-sm font-bold text-white"

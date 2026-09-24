@@ -47,6 +47,7 @@ export default function ProfilePage() {
   const [averageRating, setAverageRating] = useState<number | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [completedSalesCount, setCompletedSalesCount] = useState(0);
+  const [followersCount, setFollowersCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -123,6 +124,22 @@ export default function ProfilePage() {
         setCompletedSalesCount(0);
       } else {
         setCompletedSalesCount(completedSales || 0);
+      }
+
+      // LOAD FOLLOWERS
+      const { count: followerCount, error: followersError } = await supabase
+        .from("follows")
+        .select("*", {
+          count: "exact",
+          head: true,
+        })
+        .eq("seller_id", user.id);
+
+      if (followersError) {
+        console.error("Followers error:", followersError);
+        setFollowersCount(0);
+      } else {
+        setFollowersCount(followerCount || 0);
       }
 
       // LOAD USER'S PRODUCTS
@@ -262,7 +279,7 @@ export default function ProfilePage() {
             </div>
 
             <div>
-              <p className="text-lg font-black">0</p>
+              <p className="text-lg font-black">{followersCount}</p>
 
               <p className="text-xs text-zinc-500">Seguidores</p>
             </div>

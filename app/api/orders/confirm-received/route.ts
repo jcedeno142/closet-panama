@@ -28,10 +28,11 @@ export async function POST(request: Request) {
       .select(
         `
         id,
+        product_id,
         buyer_id,
         seller_id,
         status
-      `,
+        `,
       )
       .eq("id", orderId)
       .maybeSingle();
@@ -180,23 +181,32 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get product information for the completed-sale notification
-    const { data: orderDetails, error: detailsError } = await admin
-      .from("orders")
-      .select("product_id")
-      .eq("id", order.id)
-      .maybeSingle();
+    // MARK THE LISTING AS SOLD
+    const { error: productSoldError } = await admin
+      .from("products")
+      .update({
+        status: "sold",
+      })
+      .eq("id", order.product_id)
+      .eq("seller_id", order.seller_id);
 
-    if (detailsError) {
-      console.error("Completed order notification lookup error:", detailsError);
+    if (productSoldError) {
+      console.error("Product sold update error:", productSoldError);
+
+      return NextResponse.json(
+        {
+          error:
+            "La venta se completó, pero no pudimos marcar el artículo como vendido.",
+        },
+        { status: 500 },
+      );
     }
 
+    // Get product information for the completed-sale notification
     let productTitle = "tu publicación";
-    let productId: string | null = null;
+    const productId = order.product_id;
 
-    if (orderDetails?.product_id) {
-      productId = orderDetails.product_id;
-
+    if (productId) {
       const { data: product, error: productError } = await admin
         .from("products")
         .select("title")
