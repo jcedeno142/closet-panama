@@ -30,6 +30,7 @@ type Product = {
   id: string;
   title: string;
   brand: string | null;
+  category: string | null;
   size: string | null;
   condition: string | null;
   price: number;
@@ -58,6 +59,8 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("Para ti");
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [favoriteLoading, setFavoriteLoading] = useState<Set<string>>(
     new Set(),
@@ -95,9 +98,6 @@ export default function HomePage() {
     setLoading(true);
     setErrorMessage("");
 
-    /*
-     * LOAD REAL MARKETPLACE PRODUCTS
-     */
     const { data: productData, error: productError } = await supabase
       .from("products")
       .select(
@@ -105,6 +105,7 @@ export default function HomePage() {
         id,
         title,
         brand,
+        category,
         size,
         condition,
         price,
@@ -126,16 +127,12 @@ export default function HomePage() {
       console.error("Homepage products error:", productError);
 
       setErrorMessage("No pudimos cargar los productos.");
-
       setLoading(false);
       return;
     }
 
     const rawProducts = productData || [];
 
-    /*
-     * GET SELLER PROFILES
-     */
     const sellerIds = [
       ...new Set(rawProducts.map((product) => product.seller_id)),
     ];
@@ -163,9 +160,6 @@ export default function HomePage() {
       }
     }
 
-    /*
-     * FORMAT PRODUCTS
-     */
     const formattedProducts: Product[] = rawProducts.map((product) => ({
       ...product,
 
@@ -182,10 +176,38 @@ export default function HomePage() {
     setLoading(false);
   }, [supabase]);
 
+  const loadUnreadNotifications = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+
+    const { count, error } = await supabase
+      .from("notifications")
+      .select("id", {
+        count: "exact",
+        head: true,
+      })
+      .eq("user_id", user.id)
+      .is("read_at", null);
+
+    if (error) {
+      console.error("Unread notifications error:", error);
+      return;
+    }
+
+    setUnreadNotificationCount(count || 0);
+  }, [supabase]);
+
   useEffect(() => {
     loadProducts();
     loadFavorites();
-  }, [loadProducts, loadFavorites]);
+    loadUnreadNotifications();
+  }, [loadProducts, loadFavorites, loadUnreadNotifications]);
 
   async function toggleFavorite(productId: string) {
     if (!currentUserId) {
@@ -245,6 +267,26 @@ export default function HomePage() {
     });
   }
 
+  const filteredProducts = products.filter((product) => {
+    if (selectedCategory === "Para ti") {
+      return true;
+    }
+
+    if (selectedCategory === "Mujer") {
+      return product.category === "women";
+    }
+
+    if (selectedCategory === "Hombre") {
+      return product.category === "men";
+    }
+
+    if (selectedCategory === "Sneakers") {
+      return product.category === "shoes";
+    }
+
+    return true;
+  });
+
   return (
     <main className="min-h-screen bg-white pb-24 text-black">
       {/* HEADER */}
@@ -259,12 +301,20 @@ export default function HomePage() {
           </div>
 
           <div className="flex gap-2">
-            <button
-              type="button"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"
+            <Link
+              href="/notifications"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"
             >
               <Bell size={19} />
-            </button>
+
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">
+                  {unreadNotificationCount > 99
+                    ? "99+"
+                    : unreadNotificationCount}
+                </span>
+              )}
+            </Link>
 
             <Link
               href="/orders"
@@ -292,19 +342,24 @@ export default function HomePage() {
         {/* CATEGORIES */}
         <div className="mx-auto max-w-md overflow-x-auto px-4 pb-3">
           <div className="flex w-max gap-2">
-            {categories.map((category, index) => (
-              <button
-                key={category}
-                type="button"
-                className={
-                  index === 0
-                    ? "rounded-full bg-black px-4 py-2 text-xs font-semibold text-white"
-                    : "rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-600"
-                }
-              >
-                {category}
-              </button>
-            ))}
+            {categories.map((category) => {
+              const active = selectedCategory === category;
+
+              return (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => setSelectedCategory(category)}
+                  className={
+                    active
+                      ? "rounded-full bg-black px-4 py-2 text-xs font-semibold text-white"
+                      : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-600"
+                  }
+                >
+                  {category}
+                </button>
+              );
+            })}
           </div>
         </div>
       </header>
@@ -379,10 +434,25 @@ export default function HomePage() {
           </div>
         )}
 
+        {!loading &&
+          !errorMessage &&
+          products.length > 0 &&
+          filteredProducts.length === 0 && (
+            <div className="px-6 py-20 text-center">
+              <ShoppingBag size={34} className="mx-auto text-zinc-300" />
+
+              <h2 className="mt-4 font-bold">No hay publicaciones</h2>
+
+              <p className="mt-2 text-sm text-zinc-400">
+                Todavía no hay artículos en {selectedCategory}.
+              </p>
+            </div>
+          )}
+
         {/* REAL PRODUCTS */}
-        {!loading && !errorMessage && products.length > 0 && (
+        {!loading && !errorMessage && filteredProducts.length > 0 && (
           <div className="grid grid-cols-2 gap-x-1 gap-y-5">
-            {products.map((product) => {
+            {filteredProducts.map((product) => {
               const cover = product.product_images?.[0]?.image_url;
 
               const username =
