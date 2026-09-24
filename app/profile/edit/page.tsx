@@ -24,9 +24,9 @@ export default function EditProfilePage() {
   const [bio, setBio] = useState("");
   const [city, setCity] = useState("");
   const [province, setProvince] = useState("");
-  const [accountType, setAccountType] = useState<
-    "personal" | "business"
-  >("personal");
+  const [accountType, setAccountType] = useState<"personal" | "business">(
+    "personal",
+  );
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,9 +50,7 @@ export default function EditProfilePage() {
         .maybeSingle();
 
       if (error || !data) {
-        setMessage(
-          error?.message || "No se pudo cargar el perfil."
-        );
+        setMessage(error?.message || "No se pudo cargar el perfil.");
         setLoading(false);
         return;
       }
@@ -79,10 +77,7 @@ export default function EditProfilePage() {
     setSaving(true);
     setMessage("");
 
-    const cleanUsername = username
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, "");
+    const cleanUsername = username.toLowerCase().trim().replace(/\s+/g, "");
 
     const { error } = await supabase
       .from("profiles")
@@ -92,7 +87,6 @@ export default function EditProfilePage() {
         bio: bio.trim(),
         city: city.trim(),
         province: province.trim(),
-        account_type: accountType,
       })
       .eq("id", profileId);
 
@@ -112,9 +106,7 @@ export default function EditProfilePage() {
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
-        <p className="text-sm text-zinc-500">
-          Cargando perfil...
-        </p>
+        <p className="text-sm text-zinc-500">Cargando perfil...</p>
       </main>
     );
   }
@@ -122,7 +114,6 @@ export default function EditProfilePage() {
   return (
     <main className="min-h-screen bg-white pb-12 text-black">
       <div className="mx-auto max-w-md">
-
         {/* HEADER */}
         <header className="sticky top-0 z-40 flex items-center justify-between border-b border-zinc-100 bg-white px-4 py-4">
           <Link
@@ -132,39 +123,25 @@ export default function EditProfilePage() {
             <ArrowLeft size={20} />
           </Link>
 
-          <h1 className="font-bold">
-            Editar perfil
-          </h1>
+          <h1 className="font-bold">Editar perfil</h1>
 
           <div className="h-10 w-10" />
         </header>
 
-        <form
-          onSubmit={handleSave}
-          className="px-5 py-6"
-        >
-
+        <form onSubmit={handleSave} className="px-5 py-6">
           {/* ACCOUNT TYPE */}
           <div className="mb-6">
-            <label className="text-sm font-bold">
-              Tipo de cuenta
-            </label>
+            <label className="text-sm font-bold">Tipo de cuenta</label>
 
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() =>
-                  setAccountType("personal")
-                }
+              <div
                 className={`rounded-2xl border p-4 text-left ${
                   accountType === "personal"
                     ? "border-black bg-black text-white"
-                    : "border-zinc-200"
+                    : "border-zinc-200 bg-zinc-50 opacity-60"
                 }`}
               >
-                <p className="font-bold">
-                  Closet personal
-                </p>
+                <p className="font-bold">Closet personal</p>
 
                 <p
                   className={`mt-1 text-xs ${
@@ -175,22 +152,24 @@ export default function EditProfilePage() {
                 >
                   Vende tu propia ropa
                 </p>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setAccountType("business")
-                }
+              <div
                 className={`rounded-2xl border p-4 text-left ${
                   accountType === "business"
                     ? "border-black bg-black text-white"
-                    : "border-zinc-200"
+                    : "border-zinc-200 bg-zinc-50 opacity-60"
                 }`}
               >
-                <p className="font-bold">
-                  Boutique / Tienda
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold">Boutique / Tienda</p>
+
+                  {accountType !== "business" && (
+                    <span className="rounded-full bg-zinc-200 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-zinc-600">
+                      Próximamente
+                    </span>
+                  )}
+                </div>
 
                 <p
                   className={`mt-1 text-xs ${
@@ -201,21 +180,24 @@ export default function EditProfilePage() {
                 >
                   Vende como negocio
                 </p>
-              </button>
+              </div>
             </div>
+
+            {accountType === "personal" && (
+              <p className="mt-2 text-xs leading-5 text-zinc-400">
+                Las cuentas para boutiques y tiendas estarán disponibles
+                próximamente.
+              </p>
+            )}
           </div>
 
           {/* NAME */}
           <div className="mb-5">
-            <label className="text-sm font-bold">
-              Nombre
-            </label>
+            <label className="text-sm font-bold">Nombre</label>
 
             <input
               value={displayName}
-              onChange={(e) =>
-                setDisplayName(e.target.value)
-              }
+              onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Tu nombre"
               className="mt-2 w-full rounded-xl border border-zinc-200 px-4 py-4 text-sm outline-none focus:border-black"
             />
@@ -223,20 +205,14 @@ export default function EditProfilePage() {
 
           {/* USERNAME */}
           <div className="mb-5">
-            <label className="text-sm font-bold">
-              Usuario
-            </label>
+            <label className="text-sm font-bold">Usuario</label>
 
             <div className="mt-2 flex items-center rounded-xl border border-zinc-200 px-4">
-              <span className="text-zinc-400">
-                @
-              </span>
+              <span className="text-zinc-400">@</span>
 
               <input
                 value={username}
-                onChange={(e) =>
-                  setUsername(e.target.value)
-                }
+                onChange={(e) => setUsername(e.target.value)}
                 placeholder="usuario"
                 required
                 className="w-full px-2 py-4 text-sm outline-none"
@@ -246,15 +222,11 @@ export default function EditProfilePage() {
 
           {/* BIO */}
           <div className="mb-5">
-            <label className="text-sm font-bold">
-              Biografía
-            </label>
+            <label className="text-sm font-bold">Biografía</label>
 
             <textarea
               value={bio}
-              onChange={(e) =>
-                setBio(e.target.value)
-              }
+              onChange={(e) => setBio(e.target.value)}
               placeholder="Cuéntale a los compradores sobre ti o tu tienda..."
               rows={4}
               maxLength={250}
@@ -268,74 +240,44 @@ export default function EditProfilePage() {
 
           {/* PROVINCE */}
           <div className="mb-5">
-            <label className="text-sm font-bold">
-              Provincia
-            </label>
+            <label className="text-sm font-bold">Provincia</label>
 
             <select
               value={province}
-              onChange={(e) =>
-                setProvince(e.target.value)
-              }
+              onChange={(e) => setProvince(e.target.value)}
               className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-4 py-4 text-sm outline-none focus:border-black"
             >
-              <option value="">
-                Seleccionar provincia
-              </option>
+              <option value="">Seleccionar provincia</option>
 
-              <option value="Panamá">
-                Panamá
-              </option>
+              <option value="Panamá">Panamá</option>
 
-              <option value="Panamá Oeste">
-                Panamá Oeste
-              </option>
+              <option value="Panamá Oeste">Panamá Oeste</option>
 
-              <option value="Colón">
-                Colón
-              </option>
+              <option value="Colón">Colón</option>
 
-              <option value="Chiriquí">
-                Chiriquí
-              </option>
+              <option value="Chiriquí">Chiriquí</option>
 
-              <option value="Coclé">
-                Coclé
-              </option>
+              <option value="Coclé">Coclé</option>
 
-              <option value="Veraguas">
-                Veraguas
-              </option>
+              <option value="Veraguas">Veraguas</option>
 
-              <option value="Herrera">
-                Herrera
-              </option>
+              <option value="Herrera">Herrera</option>
 
-              <option value="Los Santos">
-                Los Santos
-              </option>
+              <option value="Los Santos">Los Santos</option>
 
-              <option value="Bocas del Toro">
-                Bocas del Toro
-              </option>
+              <option value="Bocas del Toro">Bocas del Toro</option>
 
-              <option value="Darién">
-                Darién
-              </option>
+              <option value="Darién">Darién</option>
             </select>
           </div>
 
           {/* CITY */}
           <div className="mb-6">
-            <label className="text-sm font-bold">
-              Ciudad / Área
-            </label>
+            <label className="text-sm font-bold">Ciudad / Área</label>
 
             <input
               value={city}
-              onChange={(e) =>
-                setCity(e.target.value)
-              }
+              onChange={(e) => setCity(e.target.value)}
               placeholder="Ej. San Francisco, David, La Chorrera..."
               className="mt-2 w-full rounded-xl border border-zinc-200 px-4 py-4 text-sm outline-none focus:border-black"
             />
@@ -355,9 +297,7 @@ export default function EditProfilePage() {
           >
             <Save size={18} />
 
-            {saving
-              ? "Guardando..."
-              : "Guardar cambios"}
+            {saving ? "Guardando..." : "Guardar cambios"}
           </button>
         </form>
       </div>

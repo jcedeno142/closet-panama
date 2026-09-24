@@ -7,9 +7,9 @@ export default function AuthPage() {
   const supabase = createClient();
 
   const [mode, setMode] = useState<"login" | "signup">("signup");
-  const [accountType, setAccountType] = useState<"personal" | "business">(
+  /* const [accountType, setAccountType] = useState<"personal" | "business">(
     "personal"
-  );
+  );*/
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,33 +27,24 @@ export default function AuthPage() {
 
     if (mode === "signup") {
       const { data, error } = await supabase.auth.signUp({
-  email,
-  password,
-  options: {
-    data: {
-      username,
-      display_name: displayName,
-      account_type: accountType,
-    },
-  },
-});
-
-console.log("SIGNUP DATA:", data);
-console.log("SIGNUP ERROR:", error);
-
-if (error) {
-  setMessage(error.message);
-} else if (!data.user) {
-  setMessage("No user was created. Check Supabase Auth settings.");
-} else {
-  setMessage("Account created successfully.");
-}
+        email,
+        password,
+        options: {
+          data: {
+            username,
+            display_name: displayName,
+            account_type: "personal",
+          },
+        },
+      });
 
       if (error) {
         setMessage(error.message);
+      } else if (!data.user) {
+        setMessage("No se pudo crear la cuenta.");
       } else {
         setMessage(
-          "Cuenta creada. Revisa tu correo si Supabase requiere confirmación."
+          "Cuenta creada. Revisa tu correo si se requiere confirmación.",
         );
       }
     } else {
@@ -89,9 +80,7 @@ if (error) {
           <button
             onClick={() => setMode("signup")}
             className={`flex-1 rounded-xl py-3 text-sm font-bold ${
-              mode === "signup"
-                ? "bg-black text-white"
-                : "text-zinc-500"
+              mode === "signup" ? "bg-black text-white" : "text-zinc-500"
             }`}
           >
             Crear cuenta
@@ -100,9 +89,7 @@ if (error) {
           <button
             onClick={() => setMode("login")}
             className={`flex-1 rounded-xl py-3 text-sm font-bold ${
-              mode === "login"
-                ? "bg-black text-white"
-                : "text-zinc-500"
+              mode === "login" ? "bg-black text-white" : "text-zinc-500"
             }`}
           >
             Entrar
@@ -114,47 +101,24 @@ if (error) {
             <p className="mb-3 text-sm font-bold">Tipo de cuenta</p>
 
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setAccountType("personal")}
-                className={`rounded-2xl border p-4 text-left ${
-                  accountType === "personal"
-                    ? "border-black bg-black text-white"
-                    : "border-zinc-200"
-                }`}
-              >
+              <div className="rounded-2xl border border-black bg-black p-4 text-left text-white">
                 <p className="font-bold">Closet personal</p>
-                <p
-                  className={`mt-1 text-xs ${
-                    accountType === "personal"
-                      ? "text-zinc-300"
-                      : "text-zinc-500"
-                  }`}
-                >
+                <p className="mt-1 text-xs text-zinc-300">
                   Vende tu propia ropa
                 </p>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setAccountType("business")}
-                className={`rounded-2xl border p-4 text-left ${
-                  accountType === "business"
-                    ? "border-black bg-black text-white"
-                    : "border-zinc-200"
-                }`}
-              >
-                <p className="font-bold">Boutique / Tienda</p>
-                <p
-                  className={`mt-1 text-xs ${
-                    accountType === "business"
-                      ? "text-zinc-300"
-                      : "text-zinc-500"
-                  }`}
-                >
-                  Vende como negocio
-                </p>
-              </button>
+              <div className="cursor-not-allowed rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-left opacity-60">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold">Boutique / Tienda</p>
+
+                  <span className="rounded-full bg-zinc-200 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-zinc-600">
+                    Próximamente
+                  </span>
+                </div>
+
+                <p className="mt-1 text-xs text-zinc-500">Vende como negocio</p>
+              </div>
             </div>
           </div>
         )}
@@ -173,9 +137,7 @@ if (error) {
               <input
                 value={username}
                 onChange={(e) =>
-                  setUsername(
-                    e.target.value.toLowerCase().replace(/\s+/g, "")
-                  )
+                  setUsername(e.target.value.toLowerCase().replace(/\s+/g, ""))
                 }
                 placeholder="Usuario"
                 required
@@ -210,15 +172,13 @@ if (error) {
             {loading
               ? "Procesando..."
               : mode === "signup"
-              ? "Crear cuenta"
-              : "Iniciar sesión"}
+                ? "Crear cuenta"
+                : "Iniciar sesión"}
           </button>
         </form>
 
         {message && (
-          <p className="mt-5 rounded-xl bg-zinc-100 p-4 text-sm">
-            {message}
-          </p>
+          <p className="mt-5 rounded-xl bg-zinc-100 p-4 text-sm">{message}</p>
         )}
       </div>
     </main>
