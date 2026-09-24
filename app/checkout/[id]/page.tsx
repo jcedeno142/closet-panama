@@ -34,6 +34,7 @@ type Product = {
   id: string;
   title: string;
   price: number;
+  status: string;
   product_images: ProductImage[];
 };
 
@@ -52,9 +53,7 @@ export default function CheckoutPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [seller, setSeller] = useState<Seller | null>(null);
 
-  const [paymentMethod, setPaymentMethod] = useState<
-    "yappy" | "card"
-  >("yappy");
+  const [paymentMethod, setPaymentMethod] = useState<"yappy" | "card">("yappy");
 
   const [fulfillmentMethod, setFulfillmentMethod] = useState<
     "shipping" | "local_delivery" | "pickup"
@@ -65,9 +64,7 @@ export default function CheckoutPage() {
   const [simulating, setSimulating] = useState(false);
   const [message, setMessage] = useState("");
 
-  const [createdPaymentId, setCreatedPaymentId] = useState<
-    string | null
-  >(null);
+  const [createdPaymentId, setCreatedPaymentId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadCheckout() {
@@ -84,13 +81,12 @@ export default function CheckoutPage() {
         return;
       }
 
-      const { data: orderData, error: orderError } =
-        await supabase
-          .from("orders")
-          .select("*")
-          .eq("id", orderId)
-          .eq("buyer_id", user.id)
-          .maybeSingle();
+      const { data: orderData, error: orderError } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("id", orderId)
+        .eq("buyer_id", user.id)
+        .maybeSingle();
 
       if (orderError) {
         setMessage(orderError.message);
@@ -125,20 +121,24 @@ export default function CheckoutPage() {
         setFulfillmentMethod(orderData.fulfillment_method);
       }
 
-      const { data: productData, error: productError } =
-        await supabase
-          .from("products")
-          .select(`
-            id,
-            title,
-            price,
-            product_images (
-              image_url,
-              position
-            )
-          `)
-          .eq("id", orderData.product_id)
-          .maybeSingle();
+      const { data: productData, error: productError } = await supabase
+        .from("products")
+        .select(
+          `
+          id,
+          title,
+          price,
+          status,
+          size,
+          color,
+          condition,
+          product_images (
+          image_url,
+          position
+          )`,
+        )
+        .eq("id", orderData.product_id)
+        .maybeSingle();
 
       if (productError) {
         setMessage(productError.message);
@@ -146,21 +146,34 @@ export default function CheckoutPage() {
         return;
       }
 
+      if (!productData) {
+        setMessage("Este artículo ya no está disponible.");
+        setLoading(false);
+        return;
+      }
+
+      if (productData.status !== "active") {
+        setMessage(
+          "Este artículo ya fue vendido y no está disponible para compra.",
+        );
+        setLoading(false);
+        return;
+      }
+
       if (productData) {
         setProduct({
           ...productData,
-          product_images: [
-            ...(productData.product_images || []),
-          ].sort((a, b) => a.position - b.position),
+          product_images: [...(productData.product_images || [])].sort(
+            (a, b) => a.position - b.position,
+          ),
         });
       }
 
-      const { data: sellerData, error: sellerError } =
-        await supabase
-          .from("profiles")
-          .select("username, display_name")
-          .eq("id", orderData.seller_id)
-          .maybeSingle();
+      const { data: sellerData, error: sellerError } = await supabase
+        .from("profiles")
+        .select("username, display_name")
+        .eq("id", orderData.seller_id)
+        .maybeSingle();
 
       if (sellerError) {
         setMessage(sellerError.message);
@@ -210,18 +223,14 @@ export default function CheckoutPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(
-          data.error || "No pudimos preparar el pago."
-        );
+        setMessage(data.error || "No pudimos preparar el pago.");
         return;
       }
 
       const paymentId = data.payment?.id;
 
       if (!paymentId) {
-        setMessage(
-          "El pago fue creado, pero no recibimos su ID."
-        );
+        setMessage("El pago fue creado, pero no recibimos su ID.");
         return;
       }
 
@@ -229,19 +238,17 @@ export default function CheckoutPage() {
 
       if (paymentMethod === "yappy") {
         setMessage(
-          "Pago Yappy preparado. Puedes simular la confirmación mientras desarrollamos."
+          "Pago Yappy preparado. Puedes simular la confirmación mientras desarrollamos.",
         );
       } else {
         setMessage(
-          "Pago con tarjeta preparado. Puedes simular la confirmación mientras desarrollamos."
+          "Pago con tarjeta preparado. Puedes simular la confirmación mientras desarrollamos.",
         );
       }
     } catch (error) {
       console.error("Checkout error:", error);
 
-      setMessage(
-        "Ocurrió un error al preparar el pago."
-      );
+      setMessage("Ocurrió un error al preparar el pago.");
     } finally {
       setProcessing(false);
     }
@@ -254,45 +261,32 @@ export default function CheckoutPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
-        "/api/payments/test-confirm",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            paymentId: createdPaymentId,
-          }),
-        }
-      );
+      const response = await fetch("/api/payments/test-confirm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          paymentId: createdPaymentId,
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(
-          data.error ||
-            "No pudimos simular la confirmación."
-        );
+        setMessage(data.error || "No pudimos simular la confirmación.");
         return;
       }
 
-      setMessage(
-        "Pago confirmado correctamente. Redirigiendo al pedido..."
-      );
+      setMessage("Pago confirmado correctamente. Redirigiendo al pedido...");
 
       window.setTimeout(() => {
         window.location.href = "/orders";
       }, 900);
     } catch (error) {
-      console.error(
-        "Simulated payment error:",
-        error
-      );
+      console.error("Simulated payment error:", error);
 
-      setMessage(
-        "Ocurrió un error al simular el pago."
-      );
+      setMessage("Ocurrió un error al simular el pago.");
     } finally {
       setSimulating(false);
     }
@@ -301,27 +295,18 @@ export default function CheckoutPage() {
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
-        <p className="text-sm text-zinc-500">
-          Preparando checkout...
-        </p>
+        <p className="text-sm text-zinc-500">Preparando checkout...</p>
       </main>
     );
   }
 
-  if (
-    !order ||
-    message.startsWith("No pudimos encontrar")
-  ) {
+  if (!order || !product) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
         <div className="text-center">
-          <p className="font-bold">
-            No pudimos abrir este checkout.
-          </p>
+          <p className="font-bold">No pudimos abrir este checkout.</p>
 
-          <p className="mt-2 text-sm text-zinc-500">
-            {message}
-          </p>
+          <p className="mt-2 text-sm text-zinc-500">{message}</p>
 
           <Link
             href="/orders"
@@ -334,8 +319,7 @@ export default function CheckoutPage() {
     );
   }
 
-  const cover =
-    product?.product_images?.[0]?.image_url;
+  const cover = product?.product_images?.[0]?.image_url;
 
   return (
     <main className="min-h-screen bg-zinc-50 pb-32 text-black">
@@ -349,13 +333,9 @@ export default function CheckoutPage() {
           </Link>
 
           <div className="ml-4">
-            <h1 className="text-lg font-bold">
-              Checkout
-            </h1>
+            <h1 className="text-lg font-bold">Checkout</h1>
 
-            <p className="text-xs text-zinc-400">
-              Completa tu compra
-            </p>
+            <p className="text-xs text-zinc-400">Completa tu compra</p>
           </div>
         </header>
 
@@ -376,9 +356,7 @@ export default function CheckoutPage() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="text-xs text-zinc-400">
-                Vendido por
-              </p>
+              <p className="text-xs text-zinc-400">Vendido por</p>
 
               <p className="mt-1 text-sm font-bold">
                 @{seller?.username || "vendedor"}
@@ -401,46 +379,32 @@ export default function CheckoutPage() {
           <div className="flex items-center gap-2">
             <Truck size={19} />
 
-            <h2 className="font-bold">
-              Método de entrega
-            </h2>
+            <h2 className="font-bold">Método de entrega</h2>
           </div>
 
           <div className="mt-4 space-y-3">
             <Choice
-              selected={
-                fulfillmentMethod === "shipping"
-              }
+              selected={fulfillmentMethod === "shipping"}
               title="Envío nacional"
               description="Enviar el artículo mediante courier."
               icon={<Truck size={20} />}
-              onClick={() =>
-                setFulfillmentMethod("shipping")
-              }
+              onClick={() => setFulfillmentMethod("shipping")}
             />
 
             <Choice
-              selected={
-                fulfillmentMethod === "local_delivery"
-              }
+              selected={fulfillmentMethod === "local_delivery"}
               title="Entrega local"
               description="Entrega dentro del área acordada."
               icon={<MapPin size={20} />}
-              onClick={() =>
-                setFulfillmentMethod("local_delivery")
-              }
+              onClick={() => setFulfillmentMethod("local_delivery")}
             />
 
             <Choice
-              selected={
-                fulfillmentMethod === "pickup"
-              }
+              selected={fulfillmentMethod === "pickup"}
               title="Retiro / encuentro"
               description="Coordina un punto de entrega."
               icon={<MapPin size={20} />}
-              onClick={() =>
-                setFulfillmentMethod("pickup")
-              }
+              onClick={() => setFulfillmentMethod("pickup")}
             />
           </div>
         </section>
@@ -448,9 +412,7 @@ export default function CheckoutPage() {
         <div className="h-2" />
 
         <section className="bg-white px-5 py-6">
-          <h2 className="font-bold">
-            Método de pago
-          </h2>
+          <h2 className="font-bold">Método de pago</h2>
 
           <p className="mt-1 text-xs text-zinc-400">
             Selecciona cómo deseas pagar.
@@ -462,9 +424,7 @@ export default function CheckoutPage() {
               title="Yappy"
               description="Paga rápidamente desde tu celular."
               icon={<Smartphone size={21} />}
-              onClick={() =>
-                setPaymentMethod("yappy")
-              }
+              onClick={() => setPaymentMethod("yappy")}
             />
 
             <Choice
@@ -472,9 +432,7 @@ export default function CheckoutPage() {
               title="Tarjeta"
               description="Visa, Mastercard y tarjetas compatibles."
               icon={<CreditCard size={21} />}
-              onClick={() =>
-                setPaymentMethod("card")
-              }
+              onClick={() => setPaymentMethod("card")}
             />
           </div>
         </section>
@@ -482,36 +440,24 @@ export default function CheckoutPage() {
         <div className="h-2" />
 
         <section className="bg-white px-5 py-6">
-          <h2 className="font-bold">
-            Resumen
-          </h2>
+          <h2 className="font-bold">Resumen</h2>
 
           <div className="mt-4 space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-zinc-500">
-                Artículo
-              </span>
+              <span className="text-zinc-500">Artículo</span>
 
-              <span>
-                ${Number(order.amount).toFixed(2)}
-              </span>
+              <span>${Number(order.amount).toFixed(2)}</span>
             </div>
 
             <div className="flex justify-between">
-              <span className="text-zinc-500">
-                Envío
-              </span>
+              <span className="text-zinc-500">Envío</span>
 
-              <span>
-                Se calculará después
-              </span>
+              <span>Se calculará después</span>
             </div>
 
             <div className="border-t border-zinc-100 pt-4">
               <div className="flex items-center justify-between">
-                <span className="font-bold">
-                  Total
-                </span>
+                <span className="font-bold">Total</span>
 
                 <span className="text-2xl font-black">
                   ${Number(order.amount).toFixed(2)}
@@ -522,30 +468,25 @@ export default function CheckoutPage() {
         </section>
 
         {message && (
-          <div className="m-5 rounded-xl bg-white p-4 text-sm">
-            {message}
-          </div>
+          <div className="m-5 rounded-xl bg-white p-4 text-sm">{message}</div>
         )}
 
-        {process.env.NODE_ENV !== "production" &&
-          createdPaymentId && (
-            <div className="mx-5 mb-6">
-              <button
-                type="button"
-                onClick={simulateSuccessfulPayment}
-                disabled={simulating}
-                className="w-full rounded-2xl border border-dashed border-zinc-400 bg-white px-5 py-4 text-sm font-bold text-black disabled:opacity-50"
-              >
-                {simulating
-                  ? "Simulando pago..."
-                  : "Simular pago exitoso"}
-              </button>
+        {process.env.NODE_ENV !== "production" && createdPaymentId && (
+          <div className="mx-5 mb-6">
+            <button
+              type="button"
+              onClick={simulateSuccessfulPayment}
+              disabled={simulating}
+              className="w-full rounded-2xl border border-dashed border-zinc-400 bg-white px-5 py-4 text-sm font-bold text-black disabled:opacity-50"
+            >
+              {simulating ? "Simulando pago..." : "Simular pago exitoso"}
+            </button>
 
-              <p className="mt-2 text-center text-[11px] text-zinc-400">
-                Solo disponible durante desarrollo.
-              </p>
-            </div>
-          )}
+            <p className="mt-2 text-center text-[11px] text-zinc-400">
+              Solo disponible durante desarrollo.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white p-3">
@@ -557,13 +498,9 @@ export default function CheckoutPage() {
             className="flex w-full items-center justify-between rounded-2xl bg-black px-5 py-4 text-white disabled:opacity-50"
           >
             <div className="text-left">
-              <p className="text-[10px] text-zinc-300">
-                Total
-              </p>
+              <p className="text-[10px] text-zinc-300">Total</p>
 
-              <p className="font-black">
-                ${Number(order.amount).toFixed(2)}
-              </p>
+              <p className="font-black">${Number(order.amount).toFixed(2)}</p>
             </div>
 
             <div className="flex items-center gap-2 text-sm font-bold">
@@ -600,9 +537,7 @@ function Choice({
       type="button"
       onClick={onClick}
       className={`flex w-full items-center rounded-2xl border p-4 text-left ${
-        selected
-          ? "border-black"
-          : "border-zinc-200"
+        selected ? "border-black" : "border-zinc-200"
       }`}
     >
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-zinc-100">
@@ -610,20 +545,14 @@ function Choice({
       </div>
 
       <div className="ml-3 flex-1">
-        <p className="text-sm font-bold">
-          {title}
-        </p>
+        <p className="text-sm font-bold">{title}</p>
 
-        <p className="mt-1 text-xs text-zinc-500">
-          {description}
-        </p>
+        <p className="mt-1 text-xs text-zinc-500">{description}</p>
       </div>
 
       <div
         className={`flex h-6 w-6 items-center justify-center rounded-full ${
-          selected
-            ? "bg-black text-white"
-            : "border border-zinc-300"
+          selected ? "bg-black text-white" : "border border-zinc-300"
         }`}
       >
         {selected && <Check size={14} />}

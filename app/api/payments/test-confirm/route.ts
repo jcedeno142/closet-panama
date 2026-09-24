@@ -72,6 +72,77 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
 
+    // Verify the order is still payable
+    const { data: orderToPay, error: orderCheckError } = await admin
+      .from("orders")
+      .select("id, product_id, buyer_id, seller_id, status")
+      .eq("id", payment.order_id)
+      .eq("buyer_id", payment.buyer_id)
+      .maybeSingle();
+
+    if (orderCheckError) {
+      console.error("Order payment check error:", orderCheckError);
+
+      return NextResponse.json(
+        { error: "No pudimos verificar el pedido." },
+        { status: 500 },
+      );
+    }
+
+    if (!orderToPay) {
+      return NextResponse.json(
+        { error: "Pedido no encontrado." },
+        { status: 404 },
+      );
+    }
+
+    if (orderToPay.status !== "pending_payment") {
+      return NextResponse.json(
+        { error: "Este pedido ya no está disponible para pago." },
+        { status: 409 },
+      );
+    }
+
+    // Verify the product has not already been sold
+    const { data: productToSell, error: productCheckError } = await admin
+      .from("products")
+      .select("id, seller_id, status")
+      .eq("id", orderToPay.product_id)
+      .maybeSingle();
+
+    if (productCheckError) {
+      console.error("Product payment check error:", productCheckError);
+
+      return NextResponse.json(
+        { error: "No pudimos verificar el artículo." },
+        { status: 500 },
+      );
+    }
+
+    if (!productToSell) {
+      return NextResponse.json(
+        { error: "El artículo ya no está disponible." },
+        { status: 404 },
+      );
+    }
+
+    if (
+      productToSell.seller_id !== orderToPay.seller_id ||
+      productToSell.seller_id !== payment.seller_id
+    ) {
+      return NextResponse.json(
+        { error: "El artículo no corresponde a este pedido." },
+        { status: 409 },
+      );
+    }
+
+    if (productToSell.status !== "active") {
+      return NextResponse.json(
+        { error: "Este artículo ya fue vendido." },
+        { status: 409 },
+      );
+    }
+
     // Mark payment paid
     const { error: updatePaymentError } = await admin
       .from("payments")
@@ -107,6 +178,34 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "No pudimos actualizar el pedido." },
         { status: 500 },
+      );
+    }
+
+    // Mark the one-off listing as sold as soon as payment succeeds
+    const { data: soldProduct, error: soldProductError } = await admin
+      .from("products")
+      .update({
+        status: "sold",
+      })
+      .eq("id", orderToPay.product_id)
+      .eq("seller_id", payment.seller_id)
+      .eq("status", "active")
+      .select("id")
+      .maybeSingle();
+
+    if (soldProductError) {
+      console.error("Product sold update error:", soldProductError);
+
+      return NextResponse.json(
+        { error: "No pudimos reservar el artículo vendido." },
+        { status: 500 },
+      );
+    }
+
+    if (!soldProduct) {
+      return NextResponse.json(
+        { error: "Este artículo ya fue vendido." },
+        { status: 409 },
       );
     }
 
