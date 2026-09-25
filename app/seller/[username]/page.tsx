@@ -73,8 +73,6 @@ export default function SellerPage() {
 
   const [products, setProducts] = useState<Product[]>([]);
 
-  const [soldProductIds, setSoldProductIds] = useState<string[]>([]);
-
   const [followersCount, setFollowersCount] = useState(0);
 
   const [salesCount, setSalesCount] = useState(0);
@@ -310,38 +308,23 @@ export default function SellerPage() {
         /*
          * COMPLETED SALES
          */
-        const { data: completedOrders, error: salesError } = await supabase
+        const { count: completedSales, error: salesError } = await supabase
           .from("orders")
-          .select(
-            `
-            id,
-            product_id
-          `,
-          )
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
           .eq("seller_id", profileData.id)
           .eq("status", "completed");
 
         if (salesError) {
           console.error("Completed sales error:", salesError);
-
           setSalesCount(0);
-          setSoldProductIds([]);
         } else {
-          const completed = completedOrders || [];
-
-          setSalesCount(completed.length);
-
-          setSoldProductIds(
-            Array.from(
-              new Set(
-                completed.map((order) => order.product_id).filter(Boolean),
-              ),
-            ),
-          );
+          setSalesCount(completedSales || 0);
         }
       } catch (error) {
         console.error("Seller page error:", error);
-
         setMessage("Ocurrió un error al cargar este closet.");
       } finally {
         setLoading(false);
@@ -499,9 +482,7 @@ export default function SellerPage() {
   /*
    * SOLD PRODUCTS
    */
-  const soldProducts = products.filter((product) =>
-    soldProductIds.includes(product.id),
-  );
+  const soldProducts = products.filter((product) => product.status === "sold");
 
   const visibleProducts = tab === "closet" ? activeProducts : soldProducts;
 
