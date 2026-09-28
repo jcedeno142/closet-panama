@@ -8,6 +8,7 @@ import {
   Check,
   Grid3X3,
   Heart,
+  LogOut,
   MapPin,
   Pencil,
   ShieldCheck,
@@ -335,6 +336,21 @@ export default function SellerPage() {
   }, [username, supabase]);
 
   /*
+   * LOGOUT
+   */
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Logout error:", error);
+      setMessage("No pudimos cerrar tu sesión.");
+      return;
+    }
+
+    window.location.href = "/";
+  }
+
+  /*
    * FOLLOW / UNFOLLOW
    */
   async function toggleFollow() {
@@ -538,7 +554,19 @@ export default function SellerPage() {
 
           <p className="max-w-[220px] truncate font-bold">@{displayUsername}</p>
 
-          <div className="h-10 w-10" />
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={handleLogout}
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 transition hover:bg-zinc-200"
+            >
+              <LogOut size={19} />
+            </button>
+          ) : (
+            <div className="h-10 w-10" />
+          )}
         </div>
 
         {/* PROFILE */}

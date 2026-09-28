@@ -491,38 +491,64 @@ export default function OrdersPage() {
 
                   {/* BUYER: READY FOR PICKUP */}
 
-                  {tab === "buying" && order.status === "ready_for_pickup" && (
-                    <>
-                      <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <PackageCheck size={16} className="text-zinc-500" />
+                  {tab === "buying" &&
+                    order.status === "ready_for_pickup" &&
+                    order.fulfillment_method === "pickup" && (
+                      <>
+                        <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <PackageCheck size={16} className="text-zinc-500" />
 
-                          <p className="text-xs font-semibold text-zinc-500">
-                            Tu artículo está listo para retirar.
+                            <p className="text-xs font-semibold text-zinc-500">
+                              Tu artículo está listo para retirar.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-zinc-100 p-4">
+                          <button
+                            type="button"
+                            onClick={() => confirmReceived(order.id)}
+                            disabled={processingId === order.id}
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                          >
+                            <CheckCircle2 size={18} />
+
+                            {processingId === order.id
+                              ? "Confirmando..."
+                              : "Confirmar que recibí el artículo"}
+                          </button>
+
+                          <p className="mt-2 text-center text-[11px] text-zinc-400">
+                            Confirma después de recibir personalmente el
+                            artículo.
                           </p>
                         </div>
+                      </>
+                    )}
+
+                  {/* BUYER: LOCAL DELIVERY WAITING FOR DRIVER */}
+
+                  {tab === "buying" &&
+                    order.fulfillment_method === "local_delivery" &&
+                    order.status === "ready_for_pickup" && (
+                      <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Truck size={16} className="text-zinc-500" />
+
+                          <div>
+                            <p className="text-xs font-semibold text-zinc-500">
+                              Esperando al conductor
+                            </p>
+
+                            <p className="mt-1 text-[11px] text-zinc-400">
+                              El conductor asignado recogerá tu pedido del
+                              vendedor.
+                            </p>
+                          </div>
+                        </div>
                       </div>
-
-                      <div className="border-t border-zinc-100 p-4">
-                        <button
-                          type="button"
-                          onClick={() => confirmReceived(order.id)}
-                          disabled={processingId === order.id}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
-                        >
-                          <CheckCircle2 size={18} />
-
-                          {processingId === order.id
-                            ? "Confirmando..."
-                            : "Confirmar que recibí el artículo"}
-                        </button>
-
-                        <p className="mt-2 text-center text-[11px] text-zinc-400">
-                          Confirma después de recibir personalmente el artículo.
-                        </p>
-                      </div>
-                    </>
-                  )}
+                    )}
 
                   {/* COMPLETED */}
 
@@ -615,6 +641,14 @@ function StatusBadge({ status }: { status: string }) {
 
   if (status === "ready_for_pickup") {
     label = "Listo para retirar";
+  }
+
+  if (status === "picked_up") {
+    label = "Recogido";
+  }
+
+  if (status === "out_for_delivery") {
+    label = "En camino";
   }
 
   if (status === "completed") {

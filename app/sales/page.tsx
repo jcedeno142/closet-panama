@@ -6,9 +6,11 @@ import {
   ArrowLeft,
   Box,
   CheckCircle2,
+  KeyRound,
   MapPin,
   PackageCheck,
   Truck,
+  UserRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -40,21 +42,40 @@ type SaleWithDetails = Sale & {
   buyer?: BuyerInfo;
 };
 
+type Driver = {
+  id: string;
+  username: string | null;
+  displayName: string | null;
+};
+
 type Tab = "active" | "completed";
 
 export default function SalesPage() {
   const supabase = createClient();
 
   const [sales, setSales] = useState<SaleWithDetails[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+
+  const [selectedDrivers, setSelectedDrivers] = useState<
+    Record<string, string>
+  >({});
+
+  const [assignedDrivers, setAssignedDrivers] = useState<
+    Record<string, string>
+  >({});
+
+  const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
+
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] =
-    useState<string | null>(null);
+
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
   const [message, setMessage] = useState("");
+
   const [tab, setTab] = useState<Tab>("active");
 
   async function loadSales() {
     setLoading(true);
-    setMessage("");
 
     const {
       data: { user },
@@ -66,10 +87,10 @@ export default function SalesPage() {
       return;
     }
 
-    const { data: orderData, error: orderError } =
-      await supabase
-        .from("orders")
-        .select(`
+    const { data: orderData, error: orderError } = await supabase
+      .from("orders")
+      .select(
+        `
           id,
           product_id,
           buyer_id,
@@ -78,17 +99,20 @@ export default function SalesPage() {
           status,
           fulfillment_method,
           created_at
-        `)
-        .eq("seller_id", user.id)
-        .in("status", [
-          "paid",
-          "shipped",
-          "ready_for_pickup",
-          "completed",
-        ])
-        .order("created_at", {
-          ascending: false,
-        });
+        `,
+      )
+      .eq("seller_id", user.id)
+      .in("status", [
+        "paid",
+        "shipped",
+        "ready_for_pickup",
+        "picked_up",
+        "out_for_delivery",
+        "completed",
+      ])
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (orderError) {
       setMessage(orderError.message);
@@ -98,95 +122,110 @@ export default function SalesPage() {
 
     const orders = orderData || [];
 
-    const detailedSales: SaleWithDetails[] =
-      await Promise.all(
-        orders.map(async (sale) => {
-          const { data: productData } = await supabase
-            .from("products")
-            .select(`
-              id,
-              title,
-              product_images (
-                image_url,
-                position
-              )
-            `)
-            .eq("id", sale.product_id)
-            .maybeSingle();
+    const detailedSales: SaleWithDetails[] = await Promise.all(
+      orders.map(async (sale) => {
+        const { data: productData } = await supabase
+          .from("products")
+          .select(
+            `
+                id,
+                title,
+                product_images (
+                  image_url,
+                  position
+                )
+              `,
+          )
+          .eq("id", sale.product_id)
+          .maybeSingle();
 
-          const images = [
-            ...(productData?.product_images || []),
-          ].sort(
-            (a, b) =>
-              Number(a.position) - Number(b.position)
-          );
+        const images = [...(productData?.product_images || [])].sort(
+          (a, b) => Number(a.position) - Number(b.position),
+        );
 
-          const { data: buyerData } = await supabase
-            .from("profiles")
-            .select(`
-              id,
-              username,
-              display_name
-            `)
-            .eq("id", sale.buyer_id)
-            .maybeSingle();
+        const { data: buyerData } = await supabase
+          .from("profiles")
+          .select(
+            `
+                id,
+                username,
+                display_name
+              `,
+          )
+          .eq("id", sale.buyer_id)
+          .maybeSingle();
 
-          return {
-            ...sale,
+        return {
+          ...sale,
 
-            product: productData
-              ? {
-                  id: productData.id,
-                  title: productData.title,
-                  image:
-                    images[0]?.image_url || null,
-                }
-              : undefined,
+          product: productData
+            ? {
+                id: productData.id,
+                title: productData.title,
+                image: images[0]?.image_url || null,
+              }
+            : undefined,
 
-            buyer: buyerData || undefined,
-          };
-        })
-      );
+          buyer: buyerData || undefined,
+        };
+      }),
+    );
 
     setSales(detailedSales);
     setLoading(false);
   }
 
+  async function loadDrivers() {
+    try {
+      const response = await fetch("/api/delivery/drivers");
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "No pudimos cargar los conductores.");
+
+        return;
+      }
+
+      setDrivers(data.drivers || []);
+    } catch (error) {
+      console.error(error);
+
+      setMessage("No pudimos cargar los conductores.");
+    }
+  }
+
   useEffect(() => {
     loadSales();
+    loadDrivers();
   }, []);
 
   async function updateSale(
     orderId: string,
-    action: "ship" | "ready_for_pickup"
+    action: "ship" | "ready_for_pickup",
   ) {
     setProcessingId(orderId);
     setMessage("");
 
     try {
-      const response = await fetch(
-        "/api/orders/seller-status",
-        {
-          method: "POST",
+      const response = await fetch("/api/orders/seller-status", {
+        method: "POST",
 
-          headers: {
-            "Content-Type": "application/json",
-          },
+        headers: {
+          "Content-Type": "application/json",
+        },
 
-          body: JSON.stringify({
-            orderId,
-            action,
-          }),
-        }
-      );
+        body: JSON.stringify({
+          orderId,
+          action,
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(
-          data.error ||
-            "No pudimos actualizar la venta."
-        );
+        setMessage(data.error || "No pudimos actualizar la venta.");
+
         return;
       }
 
@@ -194,9 +233,96 @@ export default function SalesPage() {
     } catch (error) {
       console.error(error);
 
-      setMessage(
-        "Ocurrió un error al actualizar la venta."
-      );
+      setMessage("Ocurrió un error al actualizar la venta.");
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function assignDriver(orderId: string) {
+    const driverId = selectedDrivers[orderId];
+
+    if (!driverId) {
+      setMessage("Selecciona un conductor.");
+
+      return;
+    }
+
+    setProcessingId(orderId);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/delivery/assign-driver", {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          orderId,
+          driverId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "No pudimos asignar el conductor.");
+
+        return;
+      }
+
+      setAssignedDrivers((current) => ({
+        ...current,
+        [orderId]: driverId,
+      }));
+
+      setMessage("Conductor asignado correctamente.");
+    } catch (error) {
+      console.error(error);
+
+      setMessage("Ocurrió un error al asignar el conductor.");
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function generatePickupCode(orderId: string) {
+    setProcessingId(orderId);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/delivery/pickup-code", {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          orderId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "No pudimos generar el código.");
+
+        return;
+      }
+
+      setPickupCodes((current) => ({
+        ...current,
+        [orderId]: data.pickupCode,
+      }));
+
+      await loadSales();
+    } catch (error) {
+      console.error(error);
+
+      setMessage("Ocurrió un error al generar el código.");
     } finally {
       setProcessingId(null);
     }
@@ -223,13 +349,9 @@ export default function SalesPage() {
             </Link>
 
             <div className="ml-4">
-              <h1 className="text-lg font-black">
-                Mis ventas
-              </h1>
+              <h1 className="text-lg font-black">Mis ventas</h1>
 
-              <p className="text-xs text-zinc-400">
-                Administra tus pedidos
-              </p>
+              <p className="text-xs text-zinc-400">Administra tus pedidos</p>
             </div>
           </div>
 
@@ -268,9 +390,7 @@ export default function SalesPage() {
 
         {loading ? (
           <div className="flex min-h-[60vh] items-center justify-center">
-            <p className="text-sm text-zinc-400">
-              Cargando ventas...
-            </p>
+            <p className="text-sm text-zinc-400">Cargando ventas...</p>
           </div>
         ) : visibleSales.length === 0 ? (
           <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
@@ -292,9 +412,7 @@ export default function SalesPage() {
           <div className="space-y-3 p-4">
             {visibleSales.map((sale) => {
               const buyerName =
-                sale.buyer?.display_name ||
-                sale.buyer?.username ||
-                "Comprador";
+                sale.buyer?.display_name || sale.buyer?.username || "Comprador";
 
               return (
                 <article
@@ -306,30 +424,21 @@ export default function SalesPage() {
                       {sale.product?.image ? (
                         <img
                           src={sale.product.image}
-                          alt={
-                            sale.product.title ||
-                            "Producto"
-                          }
+                          alt={sale.product.title || "Producto"}
                           className="h-full w-full object-cover"
                         />
                       ) : (
                         <div className="flex h-full items-center justify-center">
-                          <Box
-                            size={20}
-                            className="text-zinc-300"
-                          />
+                          <Box size={20} className="text-zinc-300" />
                         </div>
                       )}
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <StatusBadge
-                        status={sale.status}
-                      />
+                      <StatusBadge status={sale.status} />
 
                       <h2 className="mt-2 truncate font-bold">
-                        {sale.product?.title ||
-                          "Producto"}
+                        {sale.product?.title || "Producto"}
                       </h2>
 
                       <p className="mt-1 text-xs text-zinc-400">
@@ -337,45 +446,33 @@ export default function SalesPage() {
                       </p>
 
                       <p className="mt-2 text-lg font-black">
-                        $
-                        {Number(
-                          sale.amount
-                        ).toFixed(2)}
+                        ${Number(sale.amount).toFixed(2)}
                       </p>
                     </div>
                   </div>
 
                   <div className="border-t border-zinc-100 px-4 py-3">
                     <div className="flex items-center gap-2 text-xs text-zinc-500">
-                      {sale.fulfillment_method ===
-                      "pickup" ? (
+                      {sale.fulfillment_method === "pickup" ? (
                         <MapPin size={15} />
                       ) : (
                         <Truck size={15} />
                       )}
 
-                      <span>
-                        {fulfillmentLabel(
-                          sale.fulfillment_method
-                        )}
-                      </span>
+                      <span>{fulfillmentLabel(sale.fulfillment_method)}</span>
                     </div>
                   </div>
 
-                  {sale.status === "paid" && (
+                  {(sale.status === "paid" ||
+                    (sale.fulfillment_method === "local_delivery" &&
+                      sale.status === "ready_for_pickup")) && (
                     <div className="border-t border-zinc-100 p-4">
-                      {sale.fulfillment_method ===
-                      "pickup" ? (
+                      {sale.fulfillment_method === "pickup" ? (
                         <button
                           type="button"
-                          disabled={
-                            processingId === sale.id
-                          }
+                          disabled={processingId === sale.id}
                           onClick={() =>
-                            updateSale(
-                              sale.id,
-                              "ready_for_pickup"
-                            )
+                            updateSale(sale.id, "ready_for_pickup")
                           }
                           className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
                         >
@@ -385,18 +482,92 @@ export default function SalesPage() {
                             ? "Actualizando..."
                             : "Listo para retirar"}
                         </button>
-                      ) : (
+                      ) : sale.fulfillment_method === "local_delivery" ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-sm font-bold">
+                            <UserRound size={18} />
+                            Asignar conductor
+                          </div>
+
+                          <select
+                            value={selectedDrivers[sale.id] || ""}
+                            onChange={(event) =>
+                              setSelectedDrivers((current) => ({
+                                ...current,
+
+                                [sale.id]: event.target.value,
+                              }))
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none"
+                          >
+                            <option value="">Selecciona un conductor</option>
+
+                            {drivers.map((driver) => (
+                              <option key={driver.id} value={driver.id}>
+                                {driver.displayName ||
+                                  driver.username ||
+                                  "Conductor"}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            disabled={
+                              processingId === sale.id ||
+                              !selectedDrivers[sale.id]
+                            }
+                            onClick={() => assignDriver(sale.id)}
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-40"
+                          >
+                            <UserRound size={18} />
+
+                            {processingId === sale.id
+                              ? "Asignando..."
+                              : assignedDrivers[sale.id]
+                                ? "Cambiar conductor"
+                                : "Asignar conductor"}
+                          </button>
+
+                          {assignedDrivers[sale.id] && (
+                            <button
+                              type="button"
+                              disabled={processingId === sale.id}
+                              onClick={() => generatePickupCode(sale.id)}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-black px-4 py-3 text-sm font-bold disabled:opacity-50"
+                            >
+                              <KeyRound size={18} />
+
+                              {processingId === sale.id
+                                ? "Generando..."
+                                : pickupCodes[sale.id]
+                                  ? "Generar nuevo código"
+                                  : "Generar código de recogida"}
+                            </button>
+                          )}
+
+                          {pickupCodes[sale.id] && (
+                            <div className="rounded-2xl bg-zinc-100 p-4 text-center">
+                              <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+                                Código para el conductor
+                              </p>
+
+                              <p className="mt-2 text-3xl font-black tracking-[0.25em]">
+                                {pickupCodes[sale.id]}
+                              </p>
+
+                              <p className="mt-2 text-xs text-zinc-500">
+                                Entrégalo solamente al conductor asignado cuando
+                                llegue a recoger el pedido.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : sale.fulfillment_method === "shipping" ? (
                         <button
                           type="button"
-                          disabled={
-                            processingId === sale.id
-                          }
-                          onClick={() =>
-                            updateSale(
-                              sale.id,
-                              "ship"
-                            )
-                          }
+                          disabled={processingId === sale.id}
+                          onClick={() => updateSale(sale.id, "ship")}
                           className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
                         >
                           <Truck size={18} />
@@ -405,25 +576,54 @@ export default function SalesPage() {
                             ? "Actualizando..."
                             : "Marcar como enviado"}
                         </button>
+                      ) : (
+                        <p className="text-sm text-zinc-500">
+                          Método de entrega no reconocido.
+                        </p>
                       )}
                     </div>
                   )}
 
                   {(sale.status === "shipped" ||
-                    sale.status ===
-                      "ready_for_pickup") && (
+                    (sale.status === "ready_for_pickup" &&
+                      sale.fulfillment_method !== "local_delivery")) && (
                     <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
                       <p className="text-xs font-semibold text-zinc-500">
-                        Esperando confirmación del
-                        comprador.
+                        Esperando confirmación del comprador.
                       </p>
                     </div>
                   )}
 
+                  {sale.fulfillment_method === "local_delivery" &&
+                    sale.status === "ready_for_pickup" && (
+                      <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                        <p className="text-xs font-semibold text-zinc-500">
+                          Conductor asignado. Esperando recogida.
+                        </p>
+                      </div>
+                    )}
+
+                  {sale.fulfillment_method === "local_delivery" &&
+                    sale.status === "picked_up" && (
+                      <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                        <p className="text-xs font-semibold text-zinc-500">
+                          El conductor recogió el pedido.
+                        </p>
+                      </div>
+                    )}
+
+                  {sale.fulfillment_method === "local_delivery" &&
+                    sale.status === "out_for_delivery" && (
+                      <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+                        <p className="text-xs font-semibold text-zinc-500">
+                          Pedido en camino al comprador.
+                        </p>
+                      </div>
+                    )}
+
                   {sale.status === "completed" && (
                     <div className="flex items-center gap-2 border-t border-zinc-100 bg-zinc-50 px-4 py-3 text-xs font-semibold text-zinc-500">
                       <CheckCircle2 size={16} />
-
                       Venta completada
                     </div>
                   )}
@@ -437,9 +637,7 @@ export default function SalesPage() {
   );
 }
 
-function fulfillmentLabel(
-  method: string | null
-) {
+function fulfillmentLabel(method: string | null) {
   switch (method) {
     case "shipping":
       return "Envío nacional";
@@ -455,11 +653,7 @@ function fulfillmentLabel(
   }
 }
 
-function StatusBadge({
-  status,
-}: {
-  status: string;
-}) {
+function StatusBadge({ status }: { status: string }) {
   let label = status;
 
   if (status === "paid") {
@@ -472,6 +666,14 @@ function StatusBadge({
 
   if (status === "ready_for_pickup") {
     label = "Listo para retirar";
+  }
+
+  if (status === "picked_up") {
+    label = "Recogido";
+  }
+
+  if (status === "out_for_delivery") {
+    label = "En camino";
   }
 
   if (status === "completed") {
