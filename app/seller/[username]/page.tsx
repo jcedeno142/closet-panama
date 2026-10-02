@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
@@ -108,6 +108,10 @@ export default function SellerPage() {
   const [likedProducts, setLikedProducts] = useState<Product[]>([]);
   const [likesLoading, setLikesLoading] = useState(false);
   const [likesError, setLikesError] = useState("");
+  const [likesCount, setLikesCount] = useState<number | null>(null);
+  const [removingLikeId, setRemovingLikeId] = useState<string | null>(null);
+  const [likeActionMessage, setLikeActionMessage] = useState("");
+  const likesBusy = useRef(false);
 
   const [message, setMessage] = useState("");
 
@@ -166,6 +170,14 @@ export default function SellerPage() {
         }
 
         setSeller(profileData);
+        setLikesCount(null);
+        if (loggedInUserId === profileData.id) {
+          const { count, error } = await supabase.from("favorites")
+            .select("product_id, products!inner(status)", { count: "exact", head: true })
+            .eq("user_id", loggedInUserId)
+            .in("products.status", ["active", "sold"]);
+          if (!error) setLikesCount(count || 0);
+        }
 
         /*SELLER REVIEWS*/
         const { data: reviewData, error: reviewError } = await supabase
@@ -497,10 +509,12 @@ export default function SellerPage() {
   const isOwner = !!currentUserId && !!seller && currentUserId === seller.id;
 
   async function openLikes() {
-    if (!isOwner || !currentUserId || likesLoading) return;
+    if (!isOwner || !currentUserId || likesBusy.current) return;
+    likesBusy.current = true;
     setTab("likes");
     setLikesLoading(true);
     setLikesError("");
+    setLikeActionMessage("");
     try {
       const { data: favorites, error: favoritesError } = await supabase
         .from("favorites")
@@ -510,6 +524,7 @@ export default function SellerPage() {
       const ids = [...new Set((favorites || []).map(favorite => favorite.product_id))];
       if (!ids.length) {
         setLikedProducts([]);
+        setLikesCount(0);
         return;
       }
       const { data, error } = await supabase.from("products")
@@ -518,6 +533,7 @@ export default function SellerPage() {
         .in("status", ["active", "sold"])
         .order("created_at", { ascending: false });
       if (error) throw error;
+      setLikesCount(data?.length || 0);
       setLikedProducts((data || []).map(product => ({
         ...product,
         price: Number(product.price),
@@ -526,7 +542,28 @@ export default function SellerPage() {
     } catch {
       setLikesError("No pudimos cargar tus likes. Inténtalo nuevamente.");
     } finally {
+      likesBusy.current = false;
       setLikesLoading(false);
+    }
+  }
+
+  async function removeLike(productId: string) {
+    if (!isOwner || !currentUserId || likesBusy.current) return;
+    likesBusy.current = true;
+    setRemovingLikeId(productId);
+    setLikeActionMessage("");
+    try {
+      const { error } = await supabase.from("favorites").delete()
+        .eq("user_id", currentUserId).eq("product_id", productId);
+      if (error) throw error;
+      setLikedProducts(current => current.filter(product => product.id !== productId));
+      setLikesCount(current => current === null ? null : Math.max(0, current - 1));
+      setLikeActionMessage("Artículo eliminado de tus likes.");
+    } catch {
+      setLikeActionMessage("No pudimos quitar el like. Inténtalo nuevamente.");
+    } finally {
+      likesBusy.current = false;
+      setRemovingLikeId(null);
     }
   }
 
@@ -563,8 +600,8 @@ export default function SellerPage() {
    */
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-white text-black">
-        <p className="text-sm text-zinc-400">Cargando closet...</p>
+      <main className="profile-theme flex min-h-screen items-center justify-center bg-[var(--profile-bg)] text-[var(--profile-fg)]">
+        <p className="text-sm text-[var(--profile-muted)]">Cargando closet...</p>
       </main>
     );
   }
@@ -574,17 +611,17 @@ export default function SellerPage() {
    */
   if (!seller) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-white px-5 text-black">
+      <main className="profile-theme flex min-h-screen items-center justify-center bg-[var(--profile-bg)] px-5 text-[var(--profile-fg)]">
         <div className="text-center">
           <h1 className="text-xl font-black">Closet no encontrado</h1>
 
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-[var(--profile-muted)]">
             Este usuario no existe o ya no está disponible.
           </p>
 
           <Link
             href="/"
-            className="mt-5 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
+            className="mt-5 inline-block rounded-xl bg-[var(--profile-fg)] px-5 py-3 text-sm font-bold text-[var(--profile-on-accent)]"
           >
             Volver al inicio
           </Link>
@@ -594,14 +631,14 @@ export default function SellerPage() {
   }
 
   return (
-    <main className="min-h-screen bg-white pb-10 text-black">
+    <main className="profile-theme min-h-screen bg-[var(--profile-bg)] pb-10 text-[var(--profile-fg)]">
       <div className="mx-auto max-w-md">
         {/* TOP BAR */}
 
         <div className="flex items-center justify-between px-4 py-4">
           <Link
             href="/"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--profile-surface)]"
           >
             <ArrowLeft size={20} />
           </Link>
@@ -614,7 +651,7 @@ export default function SellerPage() {
               onClick={handleLogout}
               aria-label="Cerrar sesión"
               title="Cerrar sesión"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 transition hover:bg-zinc-200"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--profile-surface)] transition hover:bg-[var(--profile-border)]"
             >
               <LogOut size={19} />
             </button>
@@ -630,7 +667,7 @@ export default function SellerPage() {
             {/* AVATAR */}
 
             {seller.avatar_url ? (
-              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-zinc-100">
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--profile-surface)]">
                 <img
                   src={seller.avatar_url}
                   alt={displayName}
@@ -638,7 +675,7 @@ export default function SellerPage() {
                 />
               </div>
             ) : (
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-black text-2xl font-bold text-white">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[var(--profile-fg)] text-2xl font-bold text-[var(--profile-on-accent)]">
                 {initial}
               </div>
             )}
@@ -649,19 +686,19 @@ export default function SellerPage() {
               <div>
                 <p className="text-lg font-black">{activeProducts.length}</p>
 
-                <p className="text-xs text-zinc-500">Productos</p>
+                <p className="text-xs text-[var(--profile-muted)]">Productos</p>
               </div>
 
               <div>
                 <p className="text-lg font-black">{followersCount}</p>
 
-                <p className="text-xs text-zinc-500">Seguidores</p>
+                <p className="text-xs text-[var(--profile-muted)]">Seguidores</p>
               </div>
 
               <div>
                 <p className="text-lg font-black">{salesCount}</p>
 
-                <p className="text-xs text-zinc-500">Ventas</p>
+                <p className="text-xs text-[var(--profile-muted)]">Ventas</p>
               </div>
             </div>
           </div>
@@ -678,7 +715,7 @@ export default function SellerPage() {
             {/* LOCATION */}
 
             {location && (
-              <div className="mt-2 flex items-center gap-1 text-xs text-zinc-500">
+              <div className="mt-2 flex items-center gap-1 text-xs text-[var(--profile-muted)]">
                 <MapPin size={13} />
 
                 <span>{location}</span>
@@ -692,7 +729,7 @@ export default function SellerPage() {
                 size={14}
                 fill={averageRating !== null ? "currentColor" : "none"}
                 className={
-                  averageRating !== null ? "text-black" : "text-zinc-400"
+                  averageRating !== null ? "text-[var(--profile-fg)]" : "text-[var(--profile-muted)]"
                 }
               />
 
@@ -702,13 +739,13 @@ export default function SellerPage() {
                     {averageRating.toFixed(1)}
                   </span>
 
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-[var(--profile-muted)]">
                     · {reviewCount}{" "}
                     {reviewCount === 1 ? "calificación" : "calificaciones"}
                   </span>
                 </>
               ) : (
-                <span className="text-xs text-zinc-400">
+                <span className="text-xs text-[var(--profile-muted)]">
                   Sin calificaciones todavía
                 </span>
               )}
@@ -717,7 +754,7 @@ export default function SellerPage() {
             {/* BIO */}
 
             {seller.bio && (
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-600">
+              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-[var(--profile-secondary)]">
                 {seller.bio}
               </p>
             )}
@@ -729,7 +766,7 @@ export default function SellerPage() {
             <div className="mt-5 flex gap-2">
               <Link
                 href="/profile/edit"
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-300 py-3 text-sm font-bold"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[var(--profile-border)] py-3 text-sm font-bold"
               >
                 <Pencil size={16} />
                 Editar perfil
@@ -737,7 +774,7 @@ export default function SellerPage() {
 
               <Link
                 href="/seller/wallet"
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-black py-3 text-sm font-bold text-white"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--profile-fg)] py-3 text-sm font-bold text-[var(--profile-on-accent)]"
               >
                 <Wallet size={17} />
                 Mi billetera
@@ -754,8 +791,8 @@ export default function SellerPage() {
                 disabled={followLoading}
                 className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition disabled:opacity-50 ${
                   isFollowing
-                    ? "border border-zinc-300 bg-white text-black"
-                    : "bg-black text-white"
+                    ? "border border-[var(--profile-border)] bg-[var(--profile-bg)] text-[var(--profile-fg)]"
+                    : "bg-[var(--profile-fg)] text-[var(--profile-on-accent)]"
                 }`}
               >
                 {isFollowing && <Check size={16} />}
@@ -771,7 +808,7 @@ export default function SellerPage() {
                 type="button"
                 onClick={startConversation}
                 disabled={messageLoading}
-                className="flex flex-1 items-center justify-center rounded-xl border border-zinc-300 py-3 text-sm font-bold transition disabled:opacity-50"
+                className="flex flex-1 items-center justify-center rounded-xl border border-[var(--profile-border)] py-3 text-sm font-bold transition disabled:opacity-50"
               >
                 {messageLoading ? "Abriendo..." : "Mensaje"}
               </button>
@@ -781,7 +818,7 @@ export default function SellerPage() {
           {/* ERROR MESSAGE */}
 
           {message && (
-            <div className="mt-4 rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
+            <div className="mt-4 rounded-xl bg-[var(--profile-soft)] p-3 text-xs text-[var(--profile-muted)]">
               {message}
             </div>
           )}
@@ -789,14 +826,14 @@ export default function SellerPage() {
 
         {/* TABS */}
 
-        <div className="mt-7 flex border-b border-zinc-200">
+        <div className="mt-7 flex border-b border-[var(--profile-border)]">
           <button
             type="button"
             onClick={() => setTab("closet")}
-            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-xs ${
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 border-b-2 py-3 text-xs ${
               tab === "closet"
-                ? "border-black font-bold text-black"
-                : "border-transparent text-zinc-400"
+                ? "border-[var(--profile-fg)] font-bold text-[var(--profile-fg)]"
+                : "border-transparent text-[var(--profile-muted)]"
             }`}
           >
             <Grid3X3 size={16} />
@@ -806,33 +843,34 @@ export default function SellerPage() {
           <button
             type="button"
             onClick={() => setTab("sold")}
-            className={`flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-xs ${
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 border-b-2 py-3 text-xs ${
               tab === "sold"
-                ? "border-black font-bold text-black"
-                : "border-transparent text-zinc-400"
+                ? "border-[var(--profile-fg)] font-bold text-[var(--profile-fg)]"
+                : "border-transparent text-[var(--profile-muted)]"
             }`}
           >
             <ShoppingBag size={16} />
-            Vendidos
+            <span>Vendidos · {soldProducts.length}</span>
           </button>
 
           {isOwner && <button
             type="button"
             onClick={openLikes}
+            disabled={likesLoading || removingLikeId !== null}
             aria-pressed={tab === "likes"}
-            className={`flex flex-1 items-center justify-center gap-1 border-b-2 py-3 text-xs ${tab === "likes" ? "border-black font-bold text-black" : "border-transparent text-zinc-400"}`}
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 border-b-2 py-3 text-xs disabled:opacity-50 ${tab === "likes" ? "border-[var(--profile-fg)] font-bold text-[var(--profile-fg)]" : "border-transparent text-[var(--profile-muted)]"}`}
           >
             <Heart size={16} />
-            Likes
+            <span>Likes{likesCount !== null ? ` · ${likesCount}` : ""}</span>
           </button>}
 
           <button
             type="button"
             onClick={() => setTab("reviews")}
-            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 text-xs ${
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 border-b-2 py-3 text-xs ${
               tab === "reviews"
-                ? "border-black font-bold text-black"
-                : "border-transparent text-zinc-400"
+                ? "border-[var(--profile-fg)] font-bold text-[var(--profile-fg)]"
+                : "border-transparent text-[var(--profile-muted)]"
             }`}
           >
             <Star size={15} />
@@ -845,35 +883,36 @@ export default function SellerPage() {
             <section className="space-y-3 px-4 py-4" aria-label="Filtros del closet">
               <div className="flex items-center justify-between text-xs">
                 <span>{tab === "likes" && likesLoading ? "Cargando likes…" : `${visibleProducts.length} artículos`}</span>
-                <button type="button" aria-expanded={showFilters} aria-controls="profile-filters" onClick={() => setShowFilters(current => !current)} className="flex items-center gap-2 rounded-full border border-zinc-200 px-3 py-2 font-semibold">
+                <button type="button" aria-expanded={showFilters} aria-controls="profile-filters" onClick={() => setShowFilters(current => !current)} className="flex items-center gap-2 rounded-full border border-[var(--profile-border)] px-3 py-2 font-semibold">
                   <SlidersHorizontal size={14} />{showFilters ? "Ocultar filtros" : "Filtros"}
-                  {activeFilterCount > 0 && <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white">{activeFilterCount}</span>}
+                  {activeFilterCount > 0 && <span className="rounded-full bg-[var(--profile-fg)] px-1.5 py-0.5 text-[10px] text-[var(--profile-on-accent)]">{activeFilterCount}</span>}
                   <ChevronDown size={14} className={showFilters ? "rotate-180" : ""} />
                 </button>
               </div>
               <div id="profile-filters" hidden={!showFilters} className="space-y-3">
-              <input aria-label="Buscar en este perfil" placeholder="Buscar artículo o marca" value={query} onChange={e => setQuery(e.target.value)} className="w-full rounded-xl border p-3 text-sm" />
+              <input aria-label="Buscar en este perfil" placeholder="Buscar artículo o marca" value={query} onChange={e => setQuery(e.target.value)} className="w-full rounded-xl border border-[var(--profile-border)] p-3 text-sm" />
               <div className="grid grid-cols-2 gap-2">
-                <select aria-label="Categoría" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="min-w-0 rounded-xl border p-3 text-sm"><option value="">Todas las categorías</option>{[...new Set([...sourceProducts.map(p => p.category), categoryFilter].filter(Boolean))].map(value => <option key={value} value={value!}>{({ women: "Mujer", men: "Hombre", shoes: "Zapatos", accessories: "Accesorios" } as Record<string, string>)[value!] || value}</option>)}</select>
-                <select aria-label="Talla" value={sizeFilter} onChange={e => setSizeFilter(e.target.value)} className="min-w-0 rounded-xl border p-3 text-sm"><option value="">Todas las tallas</option>{[...new Set([...sourceProducts.map(p => p.size), sizeFilter].filter(Boolean))].map(value => <option key={value} value={value!}>{value}</option>)}</select>
+                <select aria-label="Categoría" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="min-w-0 rounded-xl border border-[var(--profile-border)] p-3 text-sm"><option value="">Todas las categorías</option>{[...new Set([...sourceProducts.map(p => p.category), categoryFilter].filter(Boolean))].map(value => <option key={value} value={value!}>{({ women: "Mujer", men: "Hombre", shoes: "Zapatos", accessories: "Accesorios" } as Record<string, string>)[value!] || value}</option>)}</select>
+                <select aria-label="Talla" value={sizeFilter} onChange={e => setSizeFilter(e.target.value)} className="min-w-0 rounded-xl border border-[var(--profile-border)] p-3 text-sm"><option value="">Todas las tallas</option>{[...new Set([...sourceProducts.map(p => p.size), sizeFilter].filter(Boolean))].map(value => <option key={value} value={value!}>{value}</option>)}</select>
               </div>
-              <select aria-label="Ordenar productos" value={sort} onChange={e => setSort(e.target.value)} className="w-full rounded-xl border p-3 text-sm"><option value="newest">Más recientes</option><option value="price-asc">Menor precio</option><option value="price-desc">Mayor precio</option></select>
+              <select aria-label="Ordenar productos" value={sort} onChange={e => setSort(e.target.value)} className="w-full rounded-xl border border-[var(--profile-border)] p-3 text-sm"><option value="newest">Más recientes</option><option value="price-asc">Menor precio</option><option value="price-desc">Mayor precio</option></select>
               <button type="button" onClick={() => { setQuery(""); setCategoryFilter(""); setSizeFilter(""); setSort("newest"); }} className="text-xs underline">Limpiar filtros</button>
               </div>
             </section>
             {/* EMPTY STATE / PRODUCTS */}
+            {tab === "likes" && <p role="status" aria-live="polite" className={likeActionMessage ? "mx-4 mb-3 rounded-xl bg-[var(--profile-surface)] p-3 text-sm" : "sr-only"}>{likeActionMessage}</p>}
 
             {tab === "likes" && likesLoading ? (
-              <p role="status" className="px-6 py-16 text-center text-sm text-zinc-500">Cargando tus artículos favoritos…</p>
+              <p role="status" className="px-6 py-16 text-center text-sm text-[var(--profile-muted)]">Cargando tus artículos favoritos…</p>
             ) : tab === "likes" && likesError ? (
               <div role="alert" className="px-6 py-12 text-center text-sm"><p>{likesError}</p><button onClick={openLikes} className="mt-4 underline">Reintentar</button></div>
             ) : visibleProducts.length === 0 ? (
               <section className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--profile-surface)]">
                   {tab === "closet" ? (
-                    <Grid3X3 size={22} className="text-zinc-400" />
+                    <Grid3X3 size={22} className="text-[var(--profile-muted)]" />
                   ) : (
-                    <Heart size={22} className="text-zinc-400" />
+                    <Heart size={22} className="text-[var(--profile-muted)]" />
                   )}
                 </div>
 
@@ -881,7 +920,7 @@ export default function SellerPage() {
                   {sourceProducts.length ? "No hay artículos con estos filtros" : tab === "likes" ? "Todavía no tienes likes" : tab === "closet" ? "Este closet está vacío" : "Todavía no hay artículos vendidos"}
                 </p>
 
-                <p className="mt-1 text-xs text-zinc-400">
+                <p className="mt-1 text-xs text-[var(--profile-muted)]">
                   {sourceProducts.length ? "Prueba otros filtros o limpia la selección." : tab === "likes" ? "Toca el corazón de un artículo para guardarlo aquí." : tab === "closet"
                     ? isOwner
                       ? "Publica tu primer artículo para comenzar."
@@ -892,7 +931,7 @@ export default function SellerPage() {
                 {tab === "closet" && isOwner && !sourceProducts.length && (
                   <Link
                     href="/sell"
-                    className="mt-5 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
+                    className="mt-5 rounded-xl bg-[var(--profile-fg)] px-5 py-3 text-sm font-bold text-[var(--profile-on-accent)]"
                   >
                     Vender un artículo
                   </Link>
@@ -905,9 +944,9 @@ export default function SellerPage() {
 
                   const isSold = product.status === "sold";
                   return (
-                    <Link key={product.id} href={`/product/${product.id}`}>
-                      <article>
-                        <div className="relative aspect-[3/4] overflow-hidden bg-zinc-100">
+                    <article key={product.id} className="relative">
+                      <Link href={`/product/${product.id}`}>
+                        <div className="relative aspect-[3/4] overflow-hidden bg-[var(--profile-surface)]">
                           {cover ? (
                             <img
                               src={cover}
@@ -915,20 +954,20 @@ export default function SellerPage() {
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                            <div className="flex h-full items-center justify-center text-xs text-[var(--profile-muted)]">
                               Sin foto
                             </div>
                           )}
 
                           {isSold && (
-                            <div className="absolute inset-x-0 bottom-0 bg-black/75 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-white">
+                            <div className="absolute inset-x-0 bottom-0 bg-[#000000]/75 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-[#ffffff]">
                               Vendido
                             </div>
                           )}
                         </div>
 
                         <div className="px-3 pt-3">
-                          <p className="truncate text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">
+                          <p className="truncate text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--profile-muted)]">
                             {product.brand || "Sin marca"}
                           </p>
 
@@ -940,8 +979,18 @@ export default function SellerPage() {
                             ${Number(product.price).toFixed(2)}
                           </p>
                         </div>
-                      </article>
-                    </Link>
+                      </Link>
+                      {tab === "likes" && isOwner && <button
+                        type="button"
+                        onClick={() => removeLike(product.id)}
+                        disabled={removingLikeId !== null}
+                        aria-label={`Quitar ${product.title} de mis likes`}
+                        aria-busy={removingLikeId === product.id}
+                        className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-red-500 shadow-sm transition hover:bg-[var(--profile-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-50"
+                      >
+                        <Heart size={20} fill="currentColor" />
+                      </button>}
+                    </article>
                   );
                 })}
               </section>
@@ -955,15 +1004,15 @@ export default function SellerPage() {
           <section className="px-5 py-6">
             {reviews.length === 0 ? (
               <div className="flex min-h-[280px] flex-col items-center justify-center text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
-                  <Star size={22} className="text-zinc-400" />
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--profile-surface)]">
+                  <Star size={22} className="text-[var(--profile-muted)]" />
                 </div>
 
                 <p className="mt-4 text-sm font-bold">
                   Sin calificaciones todavía
                 </p>
 
-                <p className="mt-1 max-w-[260px] text-xs leading-5 text-zinc-400">
+                <p className="mt-1 max-w-[260px] text-xs leading-5 text-[var(--profile-muted)]">
                   Las calificaciones de compras verificadas aparecerán aquí.
                 </p>
               </div>
@@ -971,7 +1020,7 @@ export default function SellerPage() {
               <>
                 {/* RATING SUMMARY */}
 
-                <div className="mb-6 rounded-2xl bg-zinc-50 p-5">
+                <div className="mb-6 rounded-2xl bg-[var(--profile-soft)] p-5">
                   <div className="flex items-end gap-3">
                     <span className="text-4xl font-black">
                       {averageRating?.toFixed(1)}
@@ -990,14 +1039,14 @@ export default function SellerPage() {
                               size={16}
                               fill={active ? "currentColor" : "none"}
                               className={
-                                active ? "text-black" : "text-zinc-300"
+                                active ? "text-[var(--profile-fg)]" : "text-[var(--profile-muted)]"
                               }
                             />
                           );
                         })}
                       </div>
 
-                      <p className="mt-1 text-xs text-zinc-400">
+                      <p className="mt-1 text-xs text-[var(--profile-muted)]">
                         {reviewCount}{" "}
                         {reviewCount === 1 ? "calificación" : "calificaciones"}
                       </p>
@@ -1030,7 +1079,7 @@ export default function SellerPage() {
                     return (
                       <article
                         key={review.id}
-                        className="border-b border-zinc-100 pb-5"
+                        className="border-b border-[var(--profile-border)] pb-5"
                       >
                         <div className="flex items-start gap-3">
                           {review.reviewer?.avatar_url ? (
@@ -1040,7 +1089,7 @@ export default function SellerPage() {
                               className="h-10 w-10 rounded-full object-cover"
                             />
                           ) : (
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--profile-surface)] text-sm font-black">
                               {initial}
                             </div>
                           )}
@@ -1053,13 +1102,13 @@ export default function SellerPage() {
                                 </p>
 
                                 {reviewerUsername && (
-                                  <p className="text-xs text-zinc-400">
+                                  <p className="text-xs text-[var(--profile-muted)]">
                                     @{reviewerUsername}
                                   </p>
                                 )}
                               </div>
 
-                              <span className="shrink-0 text-[11px] text-zinc-400">
+                              <span className="shrink-0 text-[11px] text-[var(--profile-muted)]">
                                 {reviewDate}
                               </span>
                             </div>
@@ -1077,20 +1126,20 @@ export default function SellerPage() {
                                     }
                                     className={
                                       star <= review.rating
-                                        ? "text-black"
-                                        : "text-zinc-300"
+                                        ? "text-[var(--profile-fg)]"
+                                        : "text-[var(--profile-muted)]"
                                     }
                                   />
                                 ))}
                               </div>
 
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--profile-muted)]">
                                 Compra verificada
                               </span>
                             </div>
 
                             {review.comment && (
-                              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-600">
+                              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-[var(--profile-secondary)]">
                                 {review.comment}
                               </p>
                             )}

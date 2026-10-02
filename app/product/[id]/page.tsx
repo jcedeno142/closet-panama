@@ -582,7 +582,7 @@ export default function ProductPage() {
             </div>
 
             {images.length > 1 && (
-              <div className="absolute bottom-4 right-4 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white">
+              <div className="absolute bottom-4 right-4 rounded-full bg-[#000000]/70 px-3 py-1.5 text-xs font-semibold text-[#ffffff]">
                 {activeImage + 1} / {images.length}
               </div>
             )}
@@ -767,7 +767,7 @@ export default function ProductPage() {
       {/* MORE OPTIONS MENU */}
       {showMoreMenu && (
         <div
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-[#000000]/40"
           onClick={() => setShowMoreMenu(false)}
         >
           <div
@@ -856,7 +856,7 @@ export default function ProductPage() {
       {/* REPORT MODAL */}
       {showReportModal && (
         <div
-          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 sm:items-center"
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-[#000000]/50 sm:items-center"
           onClick={() => {
             if (!submittingReport) {
               setShowReportModal(false);
@@ -965,7 +965,7 @@ export default function ProductPage() {
 
       {/* OFFER MODAL */}
       {showOfferModal && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 sm:items-center">
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-[#000000]/50 sm:items-center">
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl">
             <div className="flex items-center justify-between">
               <div>

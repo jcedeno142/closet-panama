@@ -202,13 +202,13 @@ export default function SellPage() {
                   <button
                     type="button"
                     onClick={() => removeImage(index)}
-                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white"
+                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#000000]/70 text-[#ffffff]"
                   >
                     <X size={15} />
                   </button>
 
                   {index === 0 && (
-                    <span className="absolute bottom-2 left-2 rounded-full bg-black/70 px-2 py-1 text-[9px] font-bold text-white">
+                    <span className="absolute bottom-2 left-2 rounded-full bg-[#000000]/70 px-2 py-1 text-[9px] font-bold text-[#ffffff]">
                       PORTADA
                     </span>
                   )}

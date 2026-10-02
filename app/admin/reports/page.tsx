@@ -577,7 +577,7 @@ function ReportCard({
                   type="button"
                   disabled={updating}
                   onClick={() => onRemoveProduct(report)}
-                  className="flex-1 rounded-2xl bg-red-600 px-4 py-3.5 text-sm font-bold text-white disabled:opacity-50"
+                  className="flex-1 rounded-2xl bg-red-600 px-4 py-3.5 text-sm font-bold text-[#ffffff] disabled:opacity-50"
                 >
                   Eliminar publicación
                 </button>

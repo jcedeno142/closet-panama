@@ -786,7 +786,7 @@ export default function InboxPage() {
 
       {/* COUNTEROFFER MODAL */}
       {counterOffer && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 sm:items-center">
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-[#000000]/50 sm:items-center">
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl">
             <div className="flex items-center justify-between">
               <div>

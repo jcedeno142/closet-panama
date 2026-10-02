@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Filter, Heart, MapPin, Search, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { matchesProductSearch } from "@/lib/product-search";
 
 type ProductImage = {
   image_url: string;
@@ -179,22 +180,8 @@ export default function SearchPage() {
   }, [loadProducts, loadFavorites]);
 
   const filteredProducts = useMemo(() => {
-    const searchText = query.trim().toLowerCase();
-
     return products.filter((product) => {
-      const searchableText = [
-        product.title,
-        product.brand,
-        product.size,
-        product.city,
-        product.province,
-        product.seller_username,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch = !searchText || searchableText.includes(searchText);
+      const matchesSearch = matchesProductSearch(product, query);
 
       const matchesCategory = !category || product.category === category;
       const matchesListingType =

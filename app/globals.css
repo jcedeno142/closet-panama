@@ -3,24 +3,79 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --app-white: #ffffff;
+  --app-black: #000000;
 }
 
 @theme inline {
+  --color-white: var(--app-white);
+  --color-black: var(--app-black);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  --profile-bg: #ffffff;
+  --profile-fg: #09090b;
+  --profile-surface: #f4f4f5;
+  --profile-soft: #fafafa;
+  --profile-muted: #71717a;
+  --profile-secondary: #52525b;
+  --profile-border: #e4e4e7;
+  --profile-on-accent: #ffffff;
+}
+
+:root[data-theme="black"] {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --app-white: #09090b;
+  --app-black: #fafafa;
+  --color-zinc-50: #18181b;
+  --color-zinc-100: #27272a;
+  --color-zinc-200: #3f3f46;
+  --color-zinc-300: #52525b;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-500: #a1a1aa;
+  --color-zinc-600: #d4d4d8;
+  --color-zinc-700: #e4e4e7;
+  --color-zinc-800: #f4f4f5;
+  --color-zinc-900: #fafafa;
+  --color-amber-50: #2b2110;
+  --color-amber-700: #fcd34d;
+  --color-blue-50: #142238;
+  --color-blue-700: #93c5fd;
+  --color-green-50: #102b20;
+  --color-green-700: #86efac;
+  --color-green-900: #bbf7d0;
+  --color-red-50: #32171b;
+  --color-red-100: #492128;
+  --color-red-200: #71313d;
+  --color-red-700: #fca5a5;
+  color-scheme: dark;
+  --profile-bg: #09090b;
+  --profile-fg: #fafafa;
+  --profile-surface: #27272a;
+  --profile-soft: #18181b;
+  --profile-muted: #a1a1aa;
+  --profile-secondary: #d4d4d8;
+  --profile-border: #3f3f46;
+  --profile-on-accent: #09090b;
+}
+
+:where(input:not([type="radio"]):not([type="checkbox"]), select, textarea) {
+  background-color: var(--profile-bg);
+  color: var(--profile-fg);
+}
+
+:where(input, textarea)::placeholder {
+  color: var(--profile-muted);
 }
