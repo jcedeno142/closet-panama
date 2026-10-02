@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   Heart,
@@ -12,7 +13,7 @@ import {
   ShoppingBag,
   User,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type ProductImage = {
@@ -52,7 +53,9 @@ const categories = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const favoritePending = useRef(new Set<string>());
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,9 +97,6 @@ export default function HomePage() {
   }, [supabase]);
 
   const loadProducts = useCallback(async () => {
-    setLoading(true);
-    setErrorMessage("");
-
     const { data: productData, error: productError } = await supabase
       .from("products")
       .select(
@@ -118,6 +118,7 @@ export default function HomePage() {
         )
       `,
       )
+      .eq("status", "active")
       .order("created_at", {
         ascending: false,
       });
@@ -203,21 +204,23 @@ export default function HomePage() {
   }, [supabase]);
 
   useEffect(() => {
-    loadProducts();
-    loadFavorites();
-    loadUnreadNotifications();
+    // These async loaders update state after Supabase network responses.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void Promise.all([loadProducts(), loadFavorites(), loadUnreadNotifications()]);
   }, [loadProducts, loadFavorites, loadUnreadNotifications]);
 
   async function toggleFavorite(productId: string) {
     if (!currentUserId) {
-      window.location.href = "/auth";
+      router.push("/auth");
       return;
     }
 
-    if (favoriteLoading.has(productId)) {
+    if (favoritePending.current.has(productId)) {
       return;
     }
 
+    favoritePending.current.add(productId);
+    try {
     setFavoriteLoading((current) => {
       const next = new Set(current);
       next.add(productId);
@@ -235,6 +238,7 @@ export default function HomePage() {
 
       if (error) {
         console.error("Remove favorite error:", error);
+        setErrorMessage("No pudimos quitar el like. Inténtalo nuevamente.");
       } else {
         setFavoriteIds((current) => {
           const next = new Set(current);
@@ -243,13 +247,14 @@ export default function HomePage() {
         });
       }
     } else {
-      const { error } = await supabase.from("favorites").insert({
+      const { error } = await supabase.from("favorites").upsert({
         user_id: currentUserId,
         product_id: productId,
-      });
+      }, { onConflict: "user_id,product_id", ignoreDuplicates: true });
 
       if (error) {
         console.error("Add favorite error:", error);
+        setErrorMessage("No pudimos guardar el like. Inténtalo nuevamente.");
       } else {
         setFavoriteIds((current) => {
           const next = new Set(current);
@@ -259,11 +264,15 @@ export default function HomePage() {
       }
     }
 
+    } catch { setErrorMessage("No pudimos actualizar el like. Revisa tu conexión."); }
+    finally {
+    favoritePending.current.delete(productId);
     setFavoriteLoading((current) => {
       const next = new Set(current);
       next.delete(productId);
       return next;
     });
+    }
   }
 
   const filteredProducts = products.filter((product) => {

@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 export default function AuthPage() {
   const supabase = createClient();
 
-  const [mode, setMode] = useState<"login" | "signup">("signup");
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">("signup");
+  const [phone, setPhone] = useState("");
   /* const [accountType, setAccountType] = useState<"personal" | "business">(
     "personal"
   );*/
@@ -24,7 +25,14 @@ export default function AuthPage() {
 
     setLoading(true);
     setMessage("");
-
+    try {
+    if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/auth/callback?recovery=1`,
+      });
+      setMessage(error ? error.message : "Si existe una cuenta con ese correo, recibirás un enlace para cambiar la contraseña.");
+      return;
+    }
     if (mode === "signup") {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -34,6 +42,7 @@ export default function AuthPage() {
             username,
             display_name: displayName,
             account_type: "personal",
+            phone: phone.replace(/[\s()-]/g, ""),
           },
         },
       });
@@ -48,19 +57,14 @@ export default function AuthPage() {
         );
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        setMessage(error.message);
-      } else {
-        window.location.href = "/";
-      }
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: email, password }) });
+      const result = await response.json();
+      if (!response.ok) setMessage(result.error);
+      else window.location.href = "/";
     }
 
-    setLoading(false);
+    } catch { setMessage("No pudimos conectar. Inténtalo nuevamente."); }
+    finally { setLoading(false); }
   }
 
   return (
@@ -68,7 +72,7 @@ export default function AuthPage() {
       <div className="mx-auto max-w-md">
         <div className="mb-8">
           <h1 className="text-3xl font-black tracking-tight">
-            {mode === "signup" ? "Crear cuenta" : "Iniciar sesión"}
+            {mode === "signup" ? "Crear cuenta" : mode === "forgot" ? "Recuperar contraseña" : "Iniciar sesión"}
           </h1>
 
           <p className="mt-2 text-sm text-zinc-500">
@@ -147,23 +151,25 @@ export default function AuthPage() {
           )}
 
           <input
-            type="email"
+            type={mode === "login" ? "text" : "email"}
+            aria-label={mode === "login" ? "Usuario o correo electrónico" : "Correo electrónico"}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Correo electrónico"
+            placeholder={mode === "login" ? "Usuario o correo electrónico" : "Correo electrónico"}
             required
             className="w-full rounded-xl border border-zinc-200 px-4 py-4 outline-none focus:border-black"
           />
 
-          <input
+          {mode === "signup" && <label className="block text-sm">Número de celular<input type="tel" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+507 6123 4567" pattern="\+[0-9 ()-]{8,20}" required className="mt-2 w-full rounded-xl border border-zinc-200 px-4 py-4" /><span className="mt-2 block text-xs text-zinc-500">Incluye el código del país. Podrás verificarlo en Seguridad del perfil.</span></label>}
+          {mode !== "forgot" && <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contraseña"
-            minLength={6}
+            minLength={mode === "signup" ? 8 : 6}
             required
             className="w-full rounded-xl border border-zinc-200 px-4 py-4 outline-none focus:border-black"
-          />
+          />}
 
           <button
             disabled={loading}
@@ -173,9 +179,10 @@ export default function AuthPage() {
               ? "Procesando..."
               : mode === "signup"
                 ? "Crear cuenta"
-                : "Iniciar sesión"}
+                : mode === "forgot" ? "Enviar enlace" : "Iniciar sesión"}
           </button>
         </form>
+        {mode === "login" && <button type="button" onClick={() => { setMode("forgot"); setEmail(""); setMessage(""); }} className="mt-5 text-sm underline">¿Olvidaste tu contraseña?</button>}
 
         {message && (
           <p className="mt-5 rounded-xl bg-zinc-100 p-4 text-sm">{message}</p>

@@ -128,6 +128,7 @@ export default function EditProfilePage() {
           <div className="h-10 w-10" />
         </header>
 
+        <div className="px-5 pt-6"><Link href="/profile/security" className="block rounded-xl bg-zinc-100 p-4 text-sm font-bold">Seguridad: cédula, celular y códigos de verificación →</Link></div>
         <form onSubmit={handleSave} className="px-5 py-6">
           {/* ACCOUNT TYPE */}
           <div className="mb-6">

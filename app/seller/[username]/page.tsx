@@ -6,6 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
+  SlidersHorizontal,
+  ShoppingBag,
   Grid3X3,
   Heart,
   LogOut,
@@ -38,6 +41,8 @@ type Product = {
   seller_id: string;
   title: string;
   brand: string | null;
+  category: string | null;
+  size: string | null;
   price: number;
   status: string;
   created_at: string;
@@ -59,7 +64,7 @@ type Review = {
   };
 };
 
-type Tab = "closet" | "sold" | "reviews";
+type Tab = "closet" | "sold" | "likes" | "reviews";
 
 export default function SellerPage() {
   const params = useParams();
@@ -95,6 +100,14 @@ export default function SellerPage() {
   const [loading, setLoading] = useState(true);
 
   const [tab, setTab] = useState<Tab>("closet");
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [showFilters, setShowFilters] = useState(false);
+  const [likedProducts, setLikedProducts] = useState<Product[]>([]);
+  const [likesLoading, setLikesLoading] = useState(false);
+  const [likesError, setLikesError] = useState("");
 
   const [message, setMessage] = useState("");
 
@@ -227,6 +240,8 @@ export default function SellerPage() {
             seller_id,
             title,
             brand,
+            category,
+            size,
             price,
             status,
             created_at,
@@ -481,6 +496,40 @@ export default function SellerPage() {
 
   const isOwner = !!currentUserId && !!seller && currentUserId === seller.id;
 
+  async function openLikes() {
+    if (!isOwner || !currentUserId || likesLoading) return;
+    setTab("likes");
+    setLikesLoading(true);
+    setLikesError("");
+    try {
+      const { data: favorites, error: favoritesError } = await supabase
+        .from("favorites")
+        .select("product_id")
+        .eq("user_id", currentUserId);
+      if (favoritesError) throw favoritesError;
+      const ids = [...new Set((favorites || []).map(favorite => favorite.product_id))];
+      if (!ids.length) {
+        setLikedProducts([]);
+        return;
+      }
+      const { data, error } = await supabase.from("products")
+        .select("id, seller_id, title, brand, category, size, price, status, created_at, product_images(image_url, position)")
+        .in("id", ids)
+        .in("status", ["active", "sold"])
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setLikedProducts((data || []).map(product => ({
+        ...product,
+        price: Number(product.price),
+        product_images: [...(product.product_images || [])].sort((a, b) => Number(a.position) - Number(b.position)),
+      })));
+    } catch {
+      setLikesError("No pudimos cargar tus likes. Inténtalo nuevamente.");
+    } finally {
+      setLikesLoading(false);
+    }
+  }
+
   const displayName =
     seller?.display_name || seller?.username?.replace(/^@/, "") || "Closet";
 
@@ -500,7 +549,12 @@ export default function SellerPage() {
    */
   const soldProducts = products.filter((product) => product.status === "sold");
 
-  const visibleProducts = tab === "closet" ? activeProducts : soldProducts;
+  const sourceProducts = tab === "likes" ? (isOwner ? likedProducts : []) : tab === "closet" ? activeProducts : soldProducts;
+  const activeFilterCount = Number(!!query.trim()) + Number(!!categoryFilter) + Number(!!sizeFilter) + Number(sort !== "newest");
+  const visibleProducts = sourceProducts.filter(product =>
+    `${product.title} ${product.brand || ""}`.toLowerCase().includes(query.trim().toLowerCase()) &&
+    (!categoryFilter || product.category === categoryFilter) && (!sizeFilter || product.size === sizeFilter)
+  ).sort((a, b) => sort === "price-asc" ? Number(a.price) - Number(b.price) : sort === "price-desc" ? Number(b.price) - Number(a.price) : new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const location = [seller?.city, seller?.province].filter(Boolean).join(", ");
 
@@ -758,9 +812,19 @@ export default function SellerPage() {
                 : "border-transparent text-zinc-400"
             }`}
           >
-            <Heart size={16} />
+            <ShoppingBag size={16} />
             Vendidos
           </button>
+
+          {isOwner && <button
+            type="button"
+            onClick={openLikes}
+            aria-pressed={tab === "likes"}
+            className={`flex flex-1 items-center justify-center gap-1 border-b-2 py-3 text-xs ${tab === "likes" ? "border-black font-bold text-black" : "border-transparent text-zinc-400"}`}
+          >
+            <Heart size={16} />
+            Likes
+          </button>}
 
           <button
             type="button"
@@ -778,9 +842,32 @@ export default function SellerPage() {
 
         {tab !== "reviews" && (
           <>
+            <section className="space-y-3 px-4 py-4" aria-label="Filtros del closet">
+              <div className="flex items-center justify-between text-xs">
+                <span>{tab === "likes" && likesLoading ? "Cargando likes…" : `${visibleProducts.length} artículos`}</span>
+                <button type="button" aria-expanded={showFilters} aria-controls="profile-filters" onClick={() => setShowFilters(current => !current)} className="flex items-center gap-2 rounded-full border border-zinc-200 px-3 py-2 font-semibold">
+                  <SlidersHorizontal size={14} />{showFilters ? "Ocultar filtros" : "Filtros"}
+                  {activeFilterCount > 0 && <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white">{activeFilterCount}</span>}
+                  <ChevronDown size={14} className={showFilters ? "rotate-180" : ""} />
+                </button>
+              </div>
+              <div id="profile-filters" hidden={!showFilters} className="space-y-3">
+              <input aria-label="Buscar en este perfil" placeholder="Buscar artículo o marca" value={query} onChange={e => setQuery(e.target.value)} className="w-full rounded-xl border p-3 text-sm" />
+              <div className="grid grid-cols-2 gap-2">
+                <select aria-label="Categoría" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="min-w-0 rounded-xl border p-3 text-sm"><option value="">Todas las categorías</option>{[...new Set([...sourceProducts.map(p => p.category), categoryFilter].filter(Boolean))].map(value => <option key={value} value={value!}>{({ women: "Mujer", men: "Hombre", shoes: "Zapatos", accessories: "Accesorios" } as Record<string, string>)[value!] || value}</option>)}</select>
+                <select aria-label="Talla" value={sizeFilter} onChange={e => setSizeFilter(e.target.value)} className="min-w-0 rounded-xl border p-3 text-sm"><option value="">Todas las tallas</option>{[...new Set([...sourceProducts.map(p => p.size), sizeFilter].filter(Boolean))].map(value => <option key={value} value={value!}>{value}</option>)}</select>
+              </div>
+              <select aria-label="Ordenar productos" value={sort} onChange={e => setSort(e.target.value)} className="w-full rounded-xl border p-3 text-sm"><option value="newest">Más recientes</option><option value="price-asc">Menor precio</option><option value="price-desc">Mayor precio</option></select>
+              <button type="button" onClick={() => { setQuery(""); setCategoryFilter(""); setSizeFilter(""); setSort("newest"); }} className="text-xs underline">Limpiar filtros</button>
+              </div>
+            </section>
             {/* EMPTY STATE / PRODUCTS */}
 
-            {visibleProducts.length === 0 ? (
+            {tab === "likes" && likesLoading ? (
+              <p role="status" className="px-6 py-16 text-center text-sm text-zinc-500">Cargando tus artículos favoritos…</p>
+            ) : tab === "likes" && likesError ? (
+              <div role="alert" className="px-6 py-12 text-center text-sm"><p>{likesError}</p><button onClick={openLikes} className="mt-4 underline">Reintentar</button></div>
+            ) : visibleProducts.length === 0 ? (
               <section className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
                   {tab === "closet" ? (
@@ -791,20 +878,18 @@ export default function SellerPage() {
                 </div>
 
                 <p className="mt-4 text-sm font-bold">
-                  {tab === "closet"
-                    ? "Este closet está vacío"
-                    : "Todavía no hay artículos vendidos"}
+                  {sourceProducts.length ? "No hay artículos con estos filtros" : tab === "likes" ? "Todavía no tienes likes" : tab === "closet" ? "Este closet está vacío" : "Todavía no hay artículos vendidos"}
                 </p>
 
                 <p className="mt-1 text-xs text-zinc-400">
-                  {tab === "closet"
+                  {sourceProducts.length ? "Prueba otros filtros o limpia la selección." : tab === "likes" ? "Toca el corazón de un artículo para guardarlo aquí." : tab === "closet"
                     ? isOwner
                       ? "Publica tu primer artículo para comenzar."
                       : "Este vendedor no tiene artículos disponibles."
                     : "Los artículos vendidos aparecerán aquí."}
                 </p>
 
-                {tab === "closet" && isOwner && (
+                {tab === "closet" && isOwner && !sourceProducts.length && (
                   <Link
                     href="/sell"
                     className="mt-5 rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
@@ -818,7 +903,7 @@ export default function SellerPage() {
                 {visibleProducts.map((product) => {
                   const cover = product.product_images?.[0]?.image_url || null;
 
-                  const isSold = tab === "sold";
+                  const isSold = product.status === "sold";
                   return (
                     <Link key={product.id} href={`/product/${product.id}`}>
                       <article>

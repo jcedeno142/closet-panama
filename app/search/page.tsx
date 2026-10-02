@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Filter, Heart, MapPin, Search, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -47,7 +48,10 @@ const conditionLabels: Record<string, string> = {
 };
 
 export default function SearchPage() {
-  const supabase = createClient();
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+  const favoritePending = useRef(new Set<string>());
+  const [favoriteMessage, setFavoriteMessage] = useState("");
 
   const [products, setProducts] = useState<Product[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
@@ -92,8 +96,6 @@ export default function SearchPage() {
   }, [supabase]);
 
   const loadProducts = useCallback(async () => {
-    setLoading(true);
-    setError("");
 
     const { data: productData, error: productError } = await supabase
       .from("products")
@@ -171,8 +173,9 @@ export default function SearchPage() {
   }, [supabase]);
 
   useEffect(() => {
-    loadProducts();
-    loadFavorites();
+    // These async loaders update state after Supabase network responses.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void Promise.all([loadProducts(), loadFavorites()]);
   }, [loadProducts, loadFavorites]);
 
   const filteredProducts = useMemo(() => {
@@ -236,12 +239,16 @@ export default function SearchPage() {
   ]);
 
   async function toggleFavorite(productId: string) {
+    if (favoritePending.current.has(productId)) return;
+    favoritePending.current.add(productId);
+    setFavoriteMessage("");
+    try {
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
-      window.location.href = "/auth";
+      router.push("/auth");
       return;
     }
 
@@ -253,6 +260,7 @@ export default function SearchPage() {
         .eq("product_id", productId);
 
       if (error) {
+        setFavoriteMessage("No pudimos quitar el like. Inténtalo nuevamente.");
         console.error(error);
         return;
       }
@@ -263,12 +271,13 @@ export default function SearchPage() {
         return updated;
       });
     } else {
-      const { error } = await supabase.from("favorites").insert({
+      const { error } = await supabase.from("favorites").upsert({
         user_id: user.id,
         product_id: productId,
-      });
+      }, { onConflict: "user_id,product_id", ignoreDuplicates: true });
 
       if (error) {
+        setFavoriteMessage("No pudimos guardar el like. Inténtalo nuevamente.");
         console.error(error);
         return;
       }
@@ -279,6 +288,8 @@ export default function SearchPage() {
         return updated;
       });
     }
+    } catch { setFavoriteMessage("No pudimos actualizar el like. Revisa tu conexión."); }
+    finally { favoritePending.current.delete(productId); }
   }
 
   function clearFilters() {
@@ -488,6 +499,7 @@ export default function SearchPage() {
         )}
 
         {/* ERROR */}
+        {favoriteMessage && <p role="status" className="mx-4 rounded-xl bg-zinc-100 p-4 text-sm">{favoriteMessage}</p>}
         {!loading && error && (
           <div className="mx-4 rounded-xl bg-zinc-100 p-4 text-sm">{error}</div>
         )}

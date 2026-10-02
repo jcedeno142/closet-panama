@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -43,7 +43,9 @@ type ProductImage = {
 };
 
 export default function ProductPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const [selling, setSelling] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
   const params = useParams();
 
   const productId = params.id as string;
@@ -186,6 +188,7 @@ export default function ProductPage() {
         .maybeSingle();
 
       if (checkError) {
+        setActionMessage("No pudimos cargar tus likes. Inténtalo nuevamente.");
         console.error("Check favorite error:", checkError);
         return;
       }
@@ -201,6 +204,7 @@ export default function ProductPage() {
           .eq("product_id", productId);
 
         if (deleteError) {
+          setActionMessage("No pudimos quitar el like.");
           console.error("Remove favorite error:", deleteError);
           return;
         }
@@ -212,18 +216,19 @@ export default function ProductPage() {
       /*
        * Not favorited -> add it
        */
-      const { error: insertError } = await supabase.from("favorites").insert({
+      const { error: insertError } = await supabase.from("favorites").upsert({
         user_id: user.id,
         product_id: productId,
-      });
+      }, { onConflict: "user_id,product_id", ignoreDuplicates: true });
 
       if (insertError) {
+        setActionMessage("No pudimos guardar el like.");
         console.error("Add favorite error:", insertError);
         return;
       }
 
       setIsFavorite(true);
-    } finally {
+    } catch { setActionMessage("No pudimos actualizar el like. Revisa tu conexión."); } finally {
       setFavoriteLoading(false);
     }
   }
@@ -608,6 +613,17 @@ export default function ProductPage() {
 
         {/* PRODUCT INFO */}
         <section className="px-5 py-6">
+          {actionMessage && <p role="status" className="mb-4 rounded-xl bg-zinc-100 p-3 text-sm">{actionMessage}</p>}
+          {isOwner && product.status === "active" && <button disabled={selling} className="mb-4 w-full rounded-xl border border-black p-3 text-sm font-bold disabled:opacity-50" onClick={async () => {
+            if (!window.confirm("¿Marcar este artículo como vendido? Dejará de estar disponible para comprar.")) return;
+            setSelling(true); setActionMessage("");
+            try {
+              const { error } = await supabase.rpc("mark_product_sold", { target_id: product.id });
+              if (error) setActionMessage(error.message);
+              else { setProduct({ ...product, status: "sold" }); setActionMessage("Artículo marcado como vendido."); }
+            } catch { setActionMessage("No pudimos actualizar el artículo."); }
+            finally { setSelling(false); }
+          }}>{selling ? "Guardando…" : "Marcar como vendido"}</button>}
           {product.brand && (
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400">
               {product.brand}
