@@ -1,4 +1,6 @@
 "use client";
+import { DirectSalesNotice } from "@/components/DirectSales";
+import { managedPaymentsEnabled } from "@/lib/marketplace-mode";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -44,6 +46,11 @@ type Seller = {
 };
 
 export default function CheckoutPage() {
+  if (!managedPaymentsEnabled) return <DirectSalesNotice />;
+  return <ManagedCheckoutPage />;
+}
+
+function ManagedCheckoutPage() {
   const params = useParams();
   const orderId = params.id as string;
 

@@ -384,7 +384,7 @@ export default function ProductPage() {
 
     if (amount >= Number(product.price)) {
       setOfferMessage(
-        "Tu oferta debe ser menor que el precio publicado. Puedes comprarlo directamente por el precio completo.",
+        "Tu oferta debe ser menor que el precio publicado. Para acordar el precio publicado, contacta al vendedor.",
       );
       return;
     }
@@ -427,55 +427,28 @@ export default function ProductPage() {
 
   async function buyNow() {
     if (!product || buying) return;
-
     if (product.status !== "active") {
       setBuyMessage("Este artículo ya no está disponible.");
       return;
     }
-
     setBuying(true);
     setBuyMessage("");
-
     try {
-      const response = await fetch("/api/orders/create", {
+      const response = await fetch("/api/conversations/start", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          productId: product.id,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otherUserId: product.seller_id }),
       });
-
       const data = await response.json();
-
-      if (response.status === 401) {
-        window.location.href = "/auth";
+      if (response.status === 401) { window.location.href = "/auth"; return; }
+      if (!response.ok || !data.conversationId) {
+        setBuyMessage(data.error || "No pudimos abrir la conversación.");
         return;
       }
-
-      if (!response.ok) {
-        setBuyMessage(data.error || "No pudimos iniciar la compra.");
-        return;
-      }
-
-      const orderId = data.order?.id;
-
-      if (!orderId) {
-        setBuyMessage("El pedido fue creado, pero no recibimos su ID.");
-        return;
-      }
-
-      window.location.href = `/checkout/${orderId}`;
-    } catch (error) {
-      console.error("Buy now error:", error);
-
-      setBuyMessage("Ocurrió un error al iniciar la compra.");
-    } finally {
-      setBuying(false);
-    }
+      window.location.href = `/inbox/${data.conversationId}`;
+    } catch { setBuyMessage("No pudimos abrir la conversación. Inténtalo nuevamente."); }
+    finally { setBuying(false); }
   }
-
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-black">
@@ -709,10 +682,10 @@ export default function ProductPage() {
             <ShieldCheck size={22} />
 
             <div>
-              <h3 className="text-sm font-bold">Compra protegida</h3>
+              <h3 className="text-sm font-bold">Compra directa</h3>
 
               <p className="mt-1 text-xs leading-5 text-zinc-500">
-                Tu pago permanecerá protegido hasta que recibas tu compra.
+                Acuerda el precio, el pago y la entrega con el vendedor por mensaje. Closet no cobra ni retiene dinero. El vendedor confirma cuando recibe tu pago.
               </p>
             </div>
           </div>
@@ -757,7 +730,7 @@ export default function ProductPage() {
               >
                 {buying
                   ? "Preparando..."
-                  : `Comprar · $${Number(product.price).toFixed(2)}`}
+                  : "Contactar vendedor"}
               </button>
             </>
           )}

@@ -1,4 +1,6 @@
 "use client";
+import { DirectSalesNotice } from "@/components/DirectSales";
+import { managedPaymentsEnabled } from "@/lib/marketplace-mode";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -33,6 +35,11 @@ type Payment = {
 };
 
 export default function SellerWalletPage() {
+  if (!managedPaymentsEnabled) return <DirectSalesNotice />;
+  return <ManagedSellerWalletPage />;
+}
+
+function ManagedSellerWalletPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [balance, setBalance] = useState<Balance | null>(null);

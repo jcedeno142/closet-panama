@@ -1,3 +1,4 @@
+import { managedPaymentsEnabled, directSalesOnlyResponse } from "@/lib/marketplace-mode";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -5,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 const PLATFORM_FEE_PERCENT = 10;
 
 export async function POST(request: Request) {
+  if (!managedPaymentsEnabled) return directSalesOnlyResponse();
   try {
     // Normal authenticated client
     const supabase = await createClient();

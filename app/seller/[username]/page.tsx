@@ -336,21 +336,7 @@ export default function SellerPage() {
         /*
          * COMPLETED SALES
          */
-        const { count: completedSales, error: salesError } = await supabase
-          .from("orders")
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("seller_id", profileData.id)
-          .eq("status", "completed");
-
-        if (salesError) {
-          console.error("Completed sales error:", salesError);
-          setSalesCount(0);
-        } else {
-          setSalesCount(completedSales || 0);
-        }
+        setSalesCount((productData || []).filter(product => product.status === "sold").length);
       } catch (error) {
         console.error("Seller page error:", error);
         setMessage("Ocurrió un error al cargar este closet.");
@@ -773,11 +759,11 @@ export default function SellerPage() {
               </Link>
 
               <Link
-                href="/seller/wallet"
+                href="/sales"
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--profile-fg)] py-3 text-sm font-bold text-[var(--profile-on-accent)]"
               >
                 <Wallet size={17} />
-                Mi billetera
+                Mis ventas
               </Link>
             </div>
           ) : (

@@ -1,4 +1,6 @@
 "use client";
+import { DirectSalesNotice } from "@/components/DirectSales";
+import { managedPaymentsEnabled } from "@/lib/marketplace-mode";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -32,6 +34,11 @@ type SellerDetails = {
 };
 
 export default function ReviewOrderPage() {
+  if (!managedPaymentsEnabled) return <DirectSalesNotice />;
+  return <ManagedReviewOrderPage />;
+}
+
+function ManagedReviewOrderPage() {
   const params = useParams();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);

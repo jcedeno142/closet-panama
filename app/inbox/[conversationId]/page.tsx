@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, Send, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import DirectSalePanel from "@/components/DirectSalePanel";
 
 type Conversation = {
   id: string;
@@ -196,6 +197,8 @@ export default function ConversationPage() {
   }, [conversationId, scrollToBottom, supabase]);
 
   useEffect(() => {
+    // Reload the remote conversation when navigating to another chat.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConversation();
   }, [loadConversation]);
 
@@ -402,6 +405,7 @@ export default function ConversationPage() {
         </header>
 
         {/* MESSAGES */}
+        <DirectSalePanel conversationId={conversationId} userId={currentUserId} buyerName={otherDisplayName} />
 
         <section className="flex-1 px-4 py-6">
           {messages.length === 0 ? (

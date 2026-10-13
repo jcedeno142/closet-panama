@@ -1,4 +1,6 @@
 "use client";
+import DirectSales from "@/components/DirectSales";
+import { managedPaymentsEnabled } from "@/lib/marketplace-mode";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -51,6 +53,11 @@ type Driver = {
 type Tab = "active" | "completed";
 
 export default function SalesPage() {
+  if (!managedPaymentsEnabled) return <DirectSales role="seller" />;
+  return <ManagedSalesPage />;
+}
+
+function ManagedSalesPage() {
   const supabase = createClient();
 
   const [sales, setSales] = useState<SaleWithDetails[]>([]);

@@ -1,4 +1,6 @@
 "use client";
+import { DirectSalesNotice } from "@/components/DirectSales";
+import { managedPaymentsEnabled } from "@/lib/marketplace-mode";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -54,6 +56,11 @@ type Driver = {
 };
 
 export default function DriverPage() {
+  if (!managedPaymentsEnabled) return <DirectSalesNotice />;
+  return <ManagedDriverPage />;
+}
+
+function ManagedDriverPage() {
   const [driver, setDriver] =
     useState<Driver | null>(null);
 

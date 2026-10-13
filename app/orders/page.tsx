@@ -1,4 +1,6 @@
 "use client";
+import DirectSales from "@/components/DirectSales";
+import { managedPaymentsEnabled } from "@/lib/marketplace-mode";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -51,6 +53,11 @@ type OrderWithDetails = Order & {
 type Tab = "buying" | "selling";
 
 export default function OrdersPage() {
+  if (!managedPaymentsEnabled) return <DirectSales role="buyer" />;
+  return <ManagedOrdersPage />;
+}
+
+function ManagedOrdersPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [orders, setOrders] = useState<OrderWithDetails[]>([]);

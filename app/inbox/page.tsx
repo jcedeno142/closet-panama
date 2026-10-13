@@ -79,6 +79,23 @@ export default function InboxPage() {
   const [counterAmount, setCounterAmount] = useState("");
 
   const [submittingCounter, setSubmittingCounter] = useState(false);
+  const [openingChat, setOpeningChat] = useState(false);
+
+  async function coordinateSale(offer: OfferCard) {
+    if (openingChat) return;
+    setOpeningChat(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/conversations/start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otherUserId: currentUserId === offer.seller_id ? offer.buyer_id : offer.seller_id }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.conversationId) throw new Error(result.error || "No pudimos abrir la conversación.");
+      window.location.href = `/inbox/${result.conversationId}`;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No pudimos abrir la conversación."); }
+    finally { setOpeningChat(false); }
+  }
 
   const loadInbox = useCallback(async () => {
     setLoading(true);
@@ -164,7 +181,7 @@ export default function InboxPage() {
 
     let profileMap: Record<string, Profile> = {};
 
-    let eventMap: Record<string, OfferEvent[]> = {};
+    const eventMap: Record<string, OfferEvent[]> = {};
 
     // PRODUCTS
     if (productIds.length > 0) {
@@ -278,6 +295,8 @@ export default function InboxPage() {
   }, [supabase]);
 
   useEffect(() => {
+    // Load this inbox from Supabase when its authenticated client changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadInbox();
   }, [loadInbox]);
 
@@ -773,6 +792,8 @@ export default function InboxPage() {
                                 offer.amount,
                             ).toFixed(2)}
                           </p>
+                          <p className="mt-2 text-xs text-green-700">Acuerden el pago y la entrega por mensaje. Aceptar una oferta no confirma el pago ni reserva el artículo.</p>
+                          <button type="button" disabled={openingChat} onClick={() => coordinateSale(offer)} className="mt-3 w-full rounded-xl bg-black p-3 text-xs font-bold text-white disabled:opacity-50">{openingChat ? "Abriendo…" : "Coordinar pago y entrega"}</button>
                         </div>
                       )}
                     </article>

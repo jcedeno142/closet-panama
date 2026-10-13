@@ -1,8 +1,10 @@
+import { managedPaymentsEnabled, directSalesOnlyResponse } from "@/lib/marketplace-mode";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
+  if (!managedPaymentsEnabled) return directSalesOnlyResponse();
   try {
     // NEVER allow simulated payments in production
     if (process.env.NODE_ENV === "production") {
