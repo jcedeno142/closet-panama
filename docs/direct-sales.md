@@ -19,3 +19,11 @@ Validation on a test account after migration:
 5. Old checkout and delivery routes do not accept payments or change orders.
 
 Real external payments and fulfillment occur between the users; test with agreed dummy transactions rather than sending real money during validation.
+
+## Delivery reports and buyer reviews
+
+After the direct-sales migration, apply `202610120002_direct_delivery_reviews.sql` once. Buyers can mark an item not received (with private details visible to the seller) or received from purchases or the conversation. They can correct the status later; the first report's existence remains recorded when receipt is confirmed. These reports do not trigger refunds or change the payment confirmation.
+
+Only the sale's buyer can change delivery status or submit/edit its one public review, enforced inside authenticated database functions. The seller cannot clear a buyer's report. Reviews unlock after either delivery outcome, including not received. Public reviews contain a snapshot of delivery status at the time of rating, clearly labeled on the seller's profile, and contribute to the seller's average. Private report text is never copied into the public review.
+
+Database acceptance checks after migration: unauthenticated users, the seller and unrelated buyers must fail both RPCs; the buyer must be unable to review a pending delivery; invalid ratings and overlong comments must fail; repeated review submissions must update one row; a stale delivery update must fail rather than overwrite a different status. Check the buyer can report non-receipt, rate, mark received later, and edit their rating. Purchases, sales and the conversation poll while visible to show the updated delivery status.

@@ -55,6 +55,7 @@ type Review = {
   rating: number;
   comment: string | null;
   created_at: string;
+  delivery_status?: "not_received" | "received";
 
   reviewer?: {
     id: string;
@@ -194,14 +195,21 @@ export default function SellerPage() {
             ascending: false,
           });
 
-        if (reviewError) {
+        const { data: directReviews, error: directReviewError } = await supabase
+          .from("direct_sale_reviews")
+          .select("id, reviewer_id, rating, comment, created_at, delivery_status")
+          .eq("seller_id", profileData.id)
+          .order("created_at", { ascending: false });
+
+        if (reviewError && directReviewError) {
           console.error("Seller reviews error:", reviewError);
 
           setReviews([]);
           setAverageRating(null);
           setReviewCount(0);
         } else {
-          const baseReviews = reviewData || [];
+          const baseReviews = [...(reviewData || []), ...(directReviews || [])]
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
           const reviewsWithProfiles: Review[] = await Promise.all(
             baseReviews.map(async (review) => {
@@ -999,7 +1007,7 @@ export default function SellerPage() {
                 </p>
 
                 <p className="mt-1 max-w-[260px] text-xs leading-5 text-[var(--profile-muted)]">
-                  Las calificaciones de compras verificadas aparecerán aquí.
+                  Las opiniones de compradores aparecerán aquí.
                 </p>
               </div>
             ) : (
@@ -1120,7 +1128,7 @@ export default function SellerPage() {
                               </div>
 
                               <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--profile-muted)]">
-                                Compra verificada
+                                {review.delivery_status === "not_received" ? "Reportó no recibido al calificar" : review.delivery_status === "received" ? "Recepción confirmada por comprador" : "Compra verificada"}
                               </span>
                             </div>
 
